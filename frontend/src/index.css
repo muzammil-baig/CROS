@@ -1,0 +1,134 @@
+@import url("https://fonts.googleapis.com/css2?family=Chivo:wght@400;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --void: #0a0a0a;
+    --surface: #141414;
+    --elevated: #1c1c1c;
+    --line: #333333;
+    --cyan: #00e5ff;
+    --red: #ff3b30;
+    --amber: #ffb020;
+    --green: #00ff66;
+    --orange: #ff4500;
+    --text: #ededed;
+    --muted: #8a8a8a;
+
+    --background: 0 0% 4%;
+    --foreground: 0 0% 93%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 93%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 93%;
+    --primary: 187 100% 50%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 11%;
+    --secondary-foreground: 0 0% 93%;
+    --muted: 0 0% 11%;
+    --muted-foreground: 0 0% 54%;
+    --accent: 0 0% 11%;
+    --accent-foreground: 0 0% 93%;
+    --destructive: 4 100% 60%;
+    --destructive-foreground: 0 0% 4%;
+    --border: 0 0% 20%;
+    --input: 0 0% 20%;
+    --ring: 187 100% 50%;
+    --radius: 2px;
+}
+
+body {
+    margin: 0;
+    background: var(--void);
+    color: var(--text);
+    font-family: Inter, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+.font-macro {
+    font-family: Chivo, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-weight: 900;
+}
+
+.font-micro {
+    font-family: "JetBrains Mono", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+}
+
+.panel-elevated {
+    background: var(--elevated);
+    border: 1px solid var(--line);
+}
+
+.grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: radial-gradient(#fff 0.5px, transparent 0.5px);
+    background-size: 3px 3px;
+}
+
+.cros-btn {
+    font-family: "JetBrains Mono", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-width: 1px;
+    border-style: solid;
+    border-radius: 2px;
+    transition-property: background-color, color, border-color;
+    transition-duration: 75ms;
+}
+
+.field-theme {
+    background: #ffffff;
+    color: #0a0a0a;
+}
+
+.field-theme .panel {
+    background: #ffffff;
+    border-color: #d4d4d4;
+}
+
+*::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+*::-webkit-scrollbar-track {
+    background: #0f0f0f;
+}
+*::-webkit-scrollbar-thumb {
+    background: #333;
+}
+
+@keyframes cros-scan {
+    0% {
+        opacity: 0.25;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.25;
+    }
+}
+.pulse-signal {
+    animation: cros-scan 1.4s linear infinite;
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+}

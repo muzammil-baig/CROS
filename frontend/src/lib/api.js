@@ -1,0 +1,37 @@
+import axios from "axios";
+
+const BASE = process.env.REACT_APP_BACKEND_URL;
+export const API = `${BASE}/api/v1`;
+
+export const api = axios.create({ baseURL: API, withCredentials: true, timeout: 60000 });
+
+let accessToken = localStorage.getItem("cros.token") || null;
+
+export function setToken(t) {
+  accessToken = t;
+  if (t) localStorage.setItem("cros.token", t);
+  else localStorage.removeItem("cros.token");
+}
+export function getToken() {
+  return accessToken;
+}
+
+api.interceptors.request.use((config) => {
+  if (accessToken) config.headers.Authorization = `Bearer ${accessToken}`;
+  return config;
+});
+
+export function apiError(e) {
+  const d = e?.response?.data;
+  if (d?.error?.message) return `${d.error.code}: ${d.error.message}`;
+  if (typeof d?.detail === "string") return d.detail;
+  if (Array.isArray(d?.detail)) return d.detail.map((x) => x.msg || JSON.stringify(x)).join(" ");
+  return e?.message || "Request failed";
+}
+
+export function wsUrl(sinceSeq) {
+  const base = BASE.replace(/^http/, "ws");
+  const q = new URLSearchParams({ token: accessToken || "" });
+  if (sinceSeq != null) q.set("since_seq", String(sinceSeq));
+  return `${base}/api/v1/realtime?${q.toString()}`;
+}

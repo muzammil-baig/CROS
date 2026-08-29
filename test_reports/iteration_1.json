@@ -1,0 +1,50 @@
+{
+  "summary": "First iteration full-stack test of CROS. Backend pytest: 20/20 passing (auth, RBAC, pipeline, idempotency, offline sync, HITL approval, mission state, CRDT capacity, transports, gateways, simulation isolation, audit, privacy). Frontend smoke: login as commander + citizen works, all 10 command-center tabs render (map, queue, missions, ai, approvals, comms, sync, audit, sim, system) with real data. Approve button visible in AI tab. Citizen offline-toggle + submit rescue flow completes without errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/v1/requests (Idempotency-Key replay)", "issue": "On duplicate replay the response returns event_status='duplicate' but with a NEWLY GENERATED request_id instead of the original request_id from first call. Client cannot correlate. Root cause: routers/requests.py fallback `(existing or {}).get('request_id', request_id)` where `existing = db.emergency_requests.find_one({'last_event_id': event_id})` — projection is not indexing/persisting last_event_id keyed to the client event_id, so lookup misses and a fresh ULID is returned. Fix: persist last_event_id on emergency_requests when first emitted, or resolve request_id via events.find_one({event_id}).payload.request_id."},
+      {"endpoint": "LLM safety_critic agent", "issue": "CriticVerdict.rationale field validated to max 800 chars but Claude regularly produces longer rationale, causing 'string_too_long' validation errors and forcing fallback to deterministic_fallback critic. See critic.error in AI_RECOMMENDATION_APPROVED_FOR_HUMAN_REVIEW events. Increase max_length or truncate model output before validating."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Realtime websocket", "issue": "WebSocket /api/v1/realtime returns 403 on first connect (before session cookie is fully installed) then reconnects. Not blocking but noisy in console.", "affected_selectors": ["wss://.../api/v1/realtime"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix idempotent replay to return the ORIGINAL request_id on POST /api/v1/requests when event_id is duplicated (either persist last_event_id on emergency_requests, or resolve via events collection). This is important for offline-first clients that retry.",
+    "Raise CriticVerdict.rationale max_length (or truncate at agent boundary) so the primary LLM critic is not silently replaced by the deterministic fallback for long rationales.",
+    "Investigate initial websocket 403 on /api/v1/realtime — pass access_token from cookie before opening WS, or fall back to Bearer via query param that actually validates."
+  ],
+  "critical_code_review_comments": [
+    "requests.py duplicate replay returns wrong request_id (see backend_issues.minor[0]).",
+    "agents.py CriticVerdict.rationale is too short (800 chars) for Sonnet 4.6 outputs — real critic is being silently disabled.",
+    "MongoDB `_id` correctly excluded in most endpoints via {\"_id\": 0} projections. Good.",
+    "server.py + routers appear well-modularised. No file > 700 LOC observed.",
+    "Data-testid coverage on the frontend is excellent (all 10 tabs + login inputs + citizen buttons found by kebab-case testids).",
+    "EventEnvelope has extra='forbid' — clients that omit correlation_id/causal_parent_ids get MALFORMED_ENVELOPE. Consider making these optional with defaults for offline device envelopes to reduce friction (though strictness is acceptable)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (20/20 pytest)", "frontend": "smoke-only: login + 10 tabs + citizen flow all OK"},
+  "test_credentials": "See /app/memory/test_credentials.md — all seeded roles verified logging in successfully. Admin: baigmuzammil62@gmail.com / CrosAdmin!2026; others: CrosDemo!2026.",
+  "seed_data_creation": "Only ephemeral TEST_-prefixed emergency requests + one CRDT capacity op + a device register per test run. All contained. Transports restored to degradation=0 after TestTransports.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "backend_test.py at /app/backend/tests/backend_test.py runs 20 tests in ~40s (LLM pipeline test dominates). Run with: REACT_APP_BACKEND_URL=<preview_url> pytest /app/backend/tests/backend_test.py (pytest.ini has -n 2 --dist loadscope so don't add -p no:xdist). Idempotent-replay request_id bug is the main open backend defect. Frontend was only smoke-tested; deeper E2E (mission accept/en-route/on-scene/complete, comms fail/restore, gateway sync, admin device revoke) still needs manual UI runs.",
+  "rca of the issue": {
+    "idempotent_replay_wrong_request_id": {
+      "reproduction": "POST /api/v1/requests twice with same Idempotency-Key header and same body -> both return 201. First response has request_id=A, second has event_status='duplicate' and request_id=B (fresh). Confirmed via curl on preview URL.",
+      "root_cause": "routers/requests.py create_request(): on duplicate branch it looks up `db.emergency_requests.find_one({'last_event_id': event_id})` and if not found falls back to the ULID minted at the top of the handler. The emergency_requests projection is not populating last_event_id keyed to the client-provided event_id, so the lookup misses.",
+      "mitigation": "Either (a) resolve via `db.events.find_one({event_id}).payload.request_id`, or (b) ensure the projection on RESCUE_REQUEST_CREATED writes last_event_id = env.event_id on the emergency_requests doc so the existing lookup succeeds."
+    }
+  }
+}

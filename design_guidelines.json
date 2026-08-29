@@ -1,0 +1,107 @@
+{
+  "project_name": "CROS (Crisis Response OS)",
+  "concept_fusion": "Tactical Military C2 (Command & Control) + Air Traffic Control Telemetry + Swiss Grid Brutalism. This eliminates 'SaaS CRM' aesthetics, focusing on absolute legibility, strict data containment, and zero-latency decision making under high-stress scenarios.",
+  "theme_strategy": {
+    "command_center": "Dark Theme Default. Deep Obsidian (#0A0A0A) background to reduce eye strain during 24/7 operations.",
+    "citizen_field_app": "High-Contrast Light Theme Default. Pure White (#FFFFFF) background for high visibility outdoors under direct sunlight.",
+    "rule": "Never mix dark and light elements on the same surface. The system must feel like a rigid instrument panel, not a consumer web app."
+  },
+  "typography": {
+    "macro_typography": {
+      "font": "Chivo",
+      "usage": "Headlines, Hero Metrics, Incident Designations",
+      "style": "Heavy weight (800/900), uppercase exclusively, compressed line-height (leading-none), and negative tracking (tracking-tighter). Scaled via fluid clamps (e.g., text-4xl to text-6xl+)."
+    },
+    "micro_typography": {
+      "font": "JetBrains Mono",
+      "usage": "Data tables, Status Codes, Coordinates, Timestamps, Simulation Tags, Log Outputs",
+      "style": "Small scale (text-xs to text-sm), regular weight, tracking-widest for data blocks. All operational metadata must be uppercase."
+    },
+    "body_typography": {
+      "font": "Inter",
+      "usage": "Citizen instructions, long-form mission briefings",
+      "style": "Highly legible, text-base, leading-relaxed. Banned from being used as headings in the Command Center."
+    }
+  },
+  "colors": {
+    "backgrounds": {
+      "void": "#0A0A0A",
+      "surface_base": "#141414",
+      "surface_elevated": "#1C1C1C",
+      "surface_citizen": "#FFFFFF",
+      "rule": "DO NOT use completely transparent backgrounds for any overlay, header, floating panel, or dropdown. Content must sit on solid, opaque backgrounds."
+    },
+    "borders": {
+      "technical": "#333333",
+      "focus": "#00E5FF"
+    },
+    "status_signals": {
+      "emergency_hazard": "#FF3B30",
+      "degraded_offline": "#FFB020",
+      "synced_safe": "#00FF66",
+      "info_comms": "#00E5FF",
+      "isolated_critical": "#FF4500",
+      "rule": "Use high-saturation signal colors EXCLUSIVELY for status and alerts. Never for decorative UI chrome."
+    }
+  },
+  "grids_and_layouts": {
+    "spacing_system": "Bimodal Density. Use a strict 4px base unit. Micro-data must be tightly packed (gap-1, gap-2). Macro-sections must be separated by vast negative space (gap-12, gap-16).",
+    "architecture": "CSS Grid strictly. No floating elements without solid 1px containment borders.",
+    "command_center": "100% Viewport Height. Background is the Live Tactical Map. UI consists of solid, opaque, left/right vertical bento-grid panels (w-96) pinned to edges. No soft shadows; use 1px solid technical borders.",
+    "mobile_web": "Map-centric top half, swipeable bottom sheet for actions (Citizen/Responder). Actions are full-width, massive touch targets (h-16)."
+  },
+  "surface_strategies": {
+    "borders_and_radii": "Utilitarian Sharpness. Max border-radius is 2px (rounded-sm). Reject pill-shaped consumer buttons. Panels are rectangular boxes delineated by solid 1px lines.",
+    "shadows": "BANNED. Do not use elevation shadows. Depth is communicated purely through z-index containment and border contrast.",
+    "transparency": "BANNED. Dropdowns, Dialogs, and Overlays MUST use a solid background (e.g., bg-zinc-950) with a 1px border. Refraction/blur kills text contrast in emergency scenarios."
+  },
+  "component_guidelines": {
+    "status_badges": "Rectangular, 1px border matching the text color, transparent background (if sitting on solid surface) or solid background. Font: JetBrains Mono uppercase. E.g., [SYNCING], [LOCAL_ONLY], [DEGRADED], [SATELLITE_BACKHAUL], [MOCKED], [SIMULATED].",
+    "verification_tags": "Required for all incidents: [VERIFIED] (Green), [CORROBORATED] (Cyan), [UNVERIFIED] (Amber), [CONTRADICTORY] (Red).",
+    "ai_recommendation_cards": "Must explicitly show 'Critic Result' and 'Confidence %' using monospace tags. Use a distinct subtle dashed border to differentiate from human-verified data.",
+    "citizen_emergency_actions": "Massive block buttons. 'NEED RESCUE' (Solid #FF3B30 bg, Black text), 'REPORT HAZARD' (Solid #FFB020 bg, Black text), 'I AM SAFE' (Solid #00FF66 bg, Black text).",
+    "approval_queue": "High-risk decisions isolated in a modal or dedicated panel with explicit ACCEPT/REJECT blocks. Stale data must show 'Updated Xs ago' in Amber."
+  },
+  "offline_first_patterns": {
+    "stale_indicators": "Data older than 5 minutes must have a 'STALE' badge and a 'Last synced: [time]' timestamp in the UI.",
+    "sync_queue_viewer": "Provide an Outbound Queue panel in the Command Center showing pending requests to the mesh/satellite network.",
+    "graceful_degradation": "If [LOCAL_ONLY], action buttons must not disappear; they remain active but queue locally, displaying a '[QUEUED]' tag immediately upon press."
+  },
+  "motion_and_interactions": {
+    "hover_states": "Invert colors on hover. Black background with Cyan text becomes Cyan background with Black text.",
+    "transitions": "Instant or ultra-fast (75ms). No long, drawn-out animations. Emergency ops require perceived zero-latency.",
+    "spinners": "Use ASCII or rigid block loaders (e.g., [///...]) rather than circular consumer spinners."
+  },
+  "accessibility": {
+    "contrast": "Strict WCAG AAA compliance for text. Use Text-Shadow (1px black) if overlaying text directly on map layers (though solid panels are preferred).",
+    "testing": "CRITICAL: All interactive elements, status badges, and action buttons MUST include a 'data-testid' attribute in kebab-case (e.g., data-testid='btn-citizen-need-rescue')."
+  },
+  "image_urls": {
+    "responder_avatars": {
+      "description": "Portraits for Responder field app assignments",
+      "urls": [
+        "https://images.unsplash.com/photo-1646639777276-64c48a23fd35?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwyfHxyZXNjdWUlMjB3b3JrZXIlMjBwb3J0cmFpdHxlbnwwfHx8fDE3ODgwNDEyMjJ8MA&ixlib=rb-4.1.0&q=85",
+        "https://images.unsplash.com/photo-1543357644-160b53c087e8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxyZXNjdWUlMjB3b3JrZXIlMjBwb3J0cmFpdHxlbnwwfHx8fDE3ODgwNDEyMjJ8MA&ixlib=rb-4.1.0&q=85"
+      ]
+    }
+  },
+  "instructions_to_main_agent": [
+    "You are building a resilient, offline-first Command Center and Field App. The UI must look like an industrial, high-precision telemetry instrument, not a SaaS CRM.",
+    "Always apply solid background colors to floating elements to prevent content bleed. DO NOT use transparent backgrounds for panels, dropdowns, or headers.",
+    "Data states (SYNCED, STALE, LOCAL_ONLY, MESH_ONLY) must be explicit, prominent monospace badges. Never hide connectivity status behind generic icons.",
+    "Implement the bimodal density layout: pack data tightly using JetBrains Mono, but frame those tight data blocks with generous negative space.",
+    "Add 'data-testid' to EVERY button, input, tab, and mission action card.",
+    "Use Phosphor Icons (sharp/regular) or Lucide icons for UI symbolism, but rely heavily on uppercase monospace text for status.",
+    "AI generated recommendations MUST be clearly demarcated with 'SIMULATED' or 'AI RECOMMENDATION' tags.",
+    "Ensure map components (e.g., react-map-gl) have properly defined explicit z-indexes to stay beneath the UI panels."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Avoid generic, 'on distribution' outputs. Make creative, distinctive frontends that surprise and delight.",
+    "Create depth through layered design elements with z-index hierarchy and strict borders.",
+    "DO NOT apply universal transitions (transition: all). Target specific properties.",
+    "DO NOT center align the app container. Preserve natural reading flows.",
+    "DO NOT use AI assistant emoji characters.",
+    "All interactive and key informational elements MUST include a data-testid attribute.",
+    "Use sonner for toast notifications."
+  ]
+}

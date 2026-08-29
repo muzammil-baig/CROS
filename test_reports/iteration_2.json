@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 2 DEEP frontend E2E of CROS. All 3 regression fixes VERIFIED: (1) idempotent replay returns same request_id (confirmed by main agent via curl), (2) safety_critic LLM outputs now show critic.mode='llm_plus_guardrail' (or hard_guardrail on blocked) with no length-caused fallback — 13/13 recommendations on AI tab used LLM critic, (3) websocket /api/v1/realtime no longer emits initial 403. Commander approve → mission → dispatch flow works. Full responder mission lifecycle (dispatched → accepted_by_responder → en_route → on_scene → completed) drove correctly with cloud confirmation and history growth. Citizen offline round trip (toggle offline → NEED RESCUE → SAVED LOCALLY + [QUEUED_1] → toggle online → SYNC NOW → [SYNCED], queued row cleared and request materialized as CORROBORATED in MY REQUESTS) works. Medical CRDT inc/dec of occupied_beds updates BEDS free and shows CRDT op id in facility-note; RUN MATCH returned 2 ranked matches. Shelter occupancy inc/dec updates % utilization. Comms internet+cellular fail flips connectivity to SATELLITE_BACKHAUL, probe queues a message, flush delivers it, restore returns state to CONNECTED. Gateway sync updates LOCAL EVENTS/PROJECTIONS/CACHED DEVICES/LAST SYNC counters (0→25/25/15/1s ago). Analyst misinformation run created simulation and RESILIENCE run row (7 rows). Role guards: citizen→/command redirects to /citizen, responder→/admin redirects to /responder — both PASS. ADMIN PAGE IS BROKEN: /api/v1/organizations returns 403 for system_administrator causing the whole Admin console to stay stuck on LOADING ADMIN CONSOLE (Promise.all rejects, users state never set). /api/v1/command-center is also 403 for admin, spamming the console with 403s on every poll.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/v1/organizations", "issue": "Returns 403 to system_administrator (baigmuzammil62@gmail.com). This breaks the entire Admin console (Admin.jsx does Promise.all([/users,/devices,/organizations,/system/health,/audit]) so a single 403 rejects the whole promise and the users state is never populated → page is stuck on 'LOADING ADMIN CONSOLE' indefinitely. USERS(200)/DEVICES(200)/AUDIT(200)/SYSTEM/HEALTH(200) are all fine.", "priority": "CRITICAL"},
+      {"endpoint": "GET /api/v1/command-center", "issue": "Returns 403 to system_administrator. The Shell polls this endpoint continuously from /admin, spamming the browser console with 403 errors every few seconds.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Admin console", "issue": "Uses Promise.all across 5 endpoints so any single 403 stalls the whole page on Loader. Should tolerate a failing sub-fetch (Promise.allSettled) and surface partial data + an error note via admin-note.", "selector": "[data-testid=\"panel-users\"]", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/citizen and /responder at 390x844", "issues": ["Horizontal overflow: document scrollWidth=720px (citizen) and 692px (responder) versus 390px clientWidth. The Shell top-bar badge row ([CONNECTED][RT_CONNECTED][SYNCED][SAT_SIMULATED][SYNC] + user + EXIT) does not wrap and pushes body wider than viewport, forcing horizontal scroll on mobile. Cards themselves lay out fine, but the header must wrap / use flex-wrap or be collapsed into a menu on <sm."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Fix RBAC: grant system_administrator (or a distinct 'admin_console' permission) read access to GET /api/v1/organizations and GET /api/v1/command-center — currently both return 403 for the seeded admin, which entirely blocks the /admin page from rendering.",
+    "Harden Admin.jsx load() to use Promise.allSettled so partial failures render available panels (users, devices, audit, health) with an inline error, instead of getting stuck on the Loader forever.",
+    "Fix mobile top-bar wrapping in Shell.jsx: the badge row + user + EXIT should flex-wrap or collapse at sm-breakpoint. Both /citizen and /responder overflow horizontally at 390x844."
+  ],
+  "critical_code_review_comments": [
+    "Admin.jsx (line 16-27): Promise.all is not resilient — one 403 breaks the whole console. Prefer Promise.allSettled with per-fetch error handling.",
+    "Auth policy inconsistency: system_administrator can read /users, /devices, /audit, /system/health but NOT /organizations or /command-center. Either give the admin role a supersets read permission, or explicitly document the split and remove /organizations from Admin.jsx.",
+    "Shell top-bar responsive: 6+ badges + role label + EXIT in a single non-wrapping row overflows 390px viewport for citizen/responder personas."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "5/6 admin endpoints (users, devices, audit, system/health OK; organizations + command-center 403 for admin)", "frontend": "12/13 flows PASS — regression fixes verified, commander→dispatch, responder lifecycle, citizen offline round-trip, medical, shelter, comms fail/restore, gateway sync, analyst run, role guards. Admin page is the only failing flow (stuck on Loader). Mobile has horizontal overflow issue on /citizen and /responder."},
+  "test_credentials": "See /app/memory/test_credentials.md — all seeded roles verified logging in. Admin: baigmuzammil62@gmail.com / CrosAdmin!2026; others: CrosDemo!2026.",
+  "seed_data_creation": "Ephemeral: 1 approved+dispatched+completed mission (01M17WHZPGZ218QJ3N1YYCRH65 rescue for REQ-01M17WDTNXHY98E4GS410RNZQ0), 1 offline-then-synced citizen rescue request (TEST_offline_flood_rising water second floor), 1 CRDT inc+dec pair on hospital occupied_beds, 1 shelter occupancy inc+dec, 1 comms probe message + flush, 1 gateway sync round on GW-NORTH-01, 1 misinformation simulation run. Comms transports were degraded and RESTORED back to CONNECTED at end.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Only one open frontend bug + associated RBAC bug remain (admin page stuck due to 403 on /organizations and /command-center for system_administrator) and one design bug (mobile top-bar overflow at 390x844). Everything else — all 3 regressions, commander flow, responder lifecycle, citizen offline sync, medical CRDT, shelter, comms, gateway, analyst, role guards — is verified working on the preview URL. When re-testing admin, just look for [data-testid^='user-'] to appear on /admin as system_administrator; if it does, the 403s on /organizations and /command-center are resolved.",
+  "rca of the issue": {
+    "admin_page_stuck_loading": {
+      "reproduction": "Log in as baigmuzammil62@gmail.com / CrosAdmin!2026 → land on /admin → page shows '[///...] LOADING ADMIN CONSOLE' forever. Browser network shows repeated 403s on GET /api/v1/organizations and GET /api/v1/command-center; the other admin GETs (/users, /devices, /audit, /system/health) return 200.",
+      "root_cause": "Two layered defects. (a) Backend RBAC: the system_administrator role is not granted read on the organizations router nor on the command-center aggregate router — those endpoints reject with 403. (b) Frontend Admin.jsx uses Promise.all() across all 5 endpoints — because one leg rejects, the .then() branch never runs, the `users` state stays null, and `if (!users) return <Loader/>` shows the loader forever with no error message to the user.",
+      "mitigation": "Backend: add organizations:read (and whatever gates /command-center) to the system_administrator role, OR remove the /organizations call from Admin.jsx and lazy-load it only when the ORG panel is opened. Frontend: switch to Promise.allSettled so partial data renders and failed fetches surface via the existing admin-note toast."
+    }
+  }
+}
