@@ -130,6 +130,9 @@ async def on_incident_updated(db, event):
 @bus.on(EventType.HAZARD_REPORTED.value)
 async def on_hazard_reported(db, event):
     p = _p(event)
+    # Module-specific attributes (water level, wind speed, surge, ...) persist
+    # generically so the core domain stays hazard-agnostic.
+    extra = {k: v for k, v in p.items() if k != "hazard_id"}
     await db.hazards.update_one(
         {"hazard_id": p["hazard_id"]},
         {"$setOnInsert": {"hazard_id": p["hazard_id"], "created_at":
@@ -140,13 +143,11 @@ async def on_hazard_reported(db, event):
              "geometry": p.get("geometry"),
              "description": p.get("description", ""),
              "severity": p.get("severity", 0.5),
-             "water_level_m": p.get("water_level_m"),
-             "rise_rate_m_per_hour": p.get("rise_rate_m_per_hour"),
-             "rainfall_mm_per_hour": p.get("rainfall_mm_per_hour"),
              "road_blocked": p.get("road_blocked", False),
              "source_provenance": p.get("source_provenance", "citizen_report"),
              "verification": p.get("verification", {"status": "UNVERIFIED", "confidence": 0.4}),
              "active": p.get("active", True),
+             **extra,
              **_meta(event)}}, upsert=True)
 
 

@@ -19,7 +19,7 @@ const NAV_BY_ROLE = {
 };
 
 export function TopBar() {
-  const { user, logout } = useAuth();
+  const { user, logout, clientSigning } = useAuth();
   const { connectivity, wsState, syncNow, localSync, snapshot } = useLive();
   const nav = useNavigate();
   const pending = outboundQueue().length;
@@ -71,6 +71,16 @@ export function TopBar() {
             <Badge value="SIMULATED" label="SAT_SIMULATED" testid="badge-simulated" />
           </span>
         )}
+        <span className="hidden md:inline">
+          <Badge
+            value={clientSigning ? "VERIFIED" : "SIMULATED"}
+            label={clientSigning ? "DEVICE_SIGNED_ED25519" : "SIMULATED_SIGNER"}
+            testid="badge-signing"
+            title={clientSigning
+              ? "Private key held on this device (WebCrypto Ed25519)"
+              : "Server-delegated signing simulator"}
+          />
+        </span>
         <Btn variant="cyan" testid="btn-sync-now" onClick={syncNow}>
           SYNC
         </Btn>

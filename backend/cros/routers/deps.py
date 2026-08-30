@@ -55,6 +55,30 @@ async def emit_client_event(*, event_type: str, payload: dict, user: dict,
     return result
 
 
+ENVELOPE_FIELDS = ("event_id", "event_type", "schema_version", "origin_device_id",
+                   "origin_actor_id", "logical_timestamp", "wall_clock_timestamp",
+                   "causal_parent_ids", "priority", "ttl_seconds", "correlation_id",
+                   "signature", "payload")
+
+
+async def sign_if_delegated(envelope: dict) -> dict:
+    """Normalise an envelope coming back from an edge node and sign it if delegated.
+
+    Edge nodes may have cached cloud-side annotations (received_at,
+    signature_verified, ...). Those are stripped so the strict event contract
+    still validates; the logical identity is untouched.
+    """
+    envelope = {k: v for k, v in envelope.items() if k in ENVELOPE_FIELDS}
+    if envelope.get("signature"):
+        return envelope
+    device_id = envelope.get("origin_device_id")
+    device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
+    if device and not device.get("revoked") and \
+            device.get("signing_mode") == "server_keystore":
+        envelope["signature"] = edge_keystore.sign_envelope(device_id, envelope)
+    return envelope
+
+
 async def publish_offline_envelope(envelope: dict, *, simulation: bool = False) -> dict:
     """Ingest an envelope created while the client was offline.
 
@@ -62,6 +86,7 @@ async def publish_offline_envelope(envelope: dict, *, simulation: bool = False) 
     exactly; no new event id is minted. If the device uses server-delegated
     signing (SIMULATED_SIGNER), the signature is applied here.
     """
+    envelope = {k: v for k, v in envelope.items() if k in ENVELOPE_FIELDS}
     device_id = envelope.get("origin_device_id")
     device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
     if device and device.get("revoked"):

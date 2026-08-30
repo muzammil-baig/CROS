@@ -130,7 +130,7 @@ async def register_device(body: DeviceRegisterBody, user: dict = Depends(get_cur
     secure-element simulator (filesystem keystore, never the database) and the
     device is marked SIMULATED_SIGNER.
     """
-    device_id = f"DEV-{user['user_id']}"
+    device_id = f"DEV-WEB-{user['user_id']}" if body.public_key else f"DEV-{user['user_id']}"
     if body.public_key:
         public_key = body.public_key
         signing_mode = "client_webcrypto"

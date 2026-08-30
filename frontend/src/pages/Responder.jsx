@@ -5,7 +5,7 @@ import { Shell } from "../components/Shell";
 import TacticalMap from "../components/TacticalMap";
 import { useAuth } from "../context/AuthContext";
 import { useLive } from "../context/LiveContext";
-import { appendLocalEvent, buildEnvelope, outboundQueue, localProjections } from "../lib/localstore";
+import { appendLocalEvent, buildSignedEnvelope, outboundQueue, localProjections } from "../lib/localstore";
 
 export default function Responder() {
   const { user } = useAuth();
@@ -47,7 +47,7 @@ export default function Responder() {
         completed: "MISSION_COMPLETED",
         failed: "MISSION_FAILED",
       }[path] || "MISSION_ACCEPTED";
-      const env = buildEnvelope({
+      const env = await buildSignedEnvelope({
         eventType,
         payload: {
           mission_id: mission.mission_id,
@@ -70,7 +70,7 @@ export default function Responder() {
       });
       appendLocalEvent(env);
       setLocal(localProjections());
-      setNote({ tone: "#FFB020", text: `${label} SAVED LOCALLY · QUEUED (EVENT ${env.event_id})` });
+      setNote({ tone: "#FFB020", text: `${label} SAVED LOCALLY · ${env.signature ? "SIGNED ON DEVICE" : "UNSIGNED"} · QUEUED (EVENT ${env.event_id})` });
       return;
     }
     try {

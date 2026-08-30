@@ -354,6 +354,24 @@ async def _seed_pipelines(request_ids, commander_id):
             pass
 
 
+async def ensure_gateway_identities():
+    """Gateways are edge signing nodes: provision keystore keys + register devices."""
+    from . import edge_keystore
+    from .constants import EventType
+    from .events import bus
+    gateways = await db.gateways.find({}, {"_id": 0, "gateway_id": 1}).to_list(200)
+    for g in gateways:
+        gid = g["gateway_id"]
+        device = await db.devices.find_one({"device_id": gid})
+        if device and edge_keystore.has_key(gid):
+            continue
+        pub = edge_keystore.provision(gid)
+        await bus.emit_system(EventType.DEVICE_REGISTERED.value, {
+            "device_id": gid, "public_key": pub, "owner_user_id": None,
+            "device_type": "field_gateway", "signing_mode": "server_keystore",
+            "trust_level": "trusted"})
+
+
 async def credentials_markdown() -> str:
     users = await db.users.find({}, {"_id": 0, "email": 1, "role": 1, "name": 1}).to_list(100)
     lines = ["# CROS Test Credentials", "",

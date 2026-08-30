@@ -101,8 +101,9 @@ async def validation_handler(request: Request, exc: RequestValidationError):
 async def startup():
     await ensure_indexes()
     await ensure_cloud_identity()
-    from cros.seed import credentials_markdown, seed
+    from cros.seed import credentials_markdown, ensure_gateway_identities, seed
     result = await seed()
+    await ensure_gateway_identities()
     logger.info("seed: %s", result)
     try:
         Path("/app/memory").mkdir(exist_ok=True)

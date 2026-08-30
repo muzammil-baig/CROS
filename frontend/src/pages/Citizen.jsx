@@ -7,7 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { useLive } from "../context/LiveContext";
 import {
   appendLocalEvent,
-  buildEnvelope,
+  buildSignedEnvelope,
   localProjections,
   outboundQueue,
 } from "../lib/localstore";
@@ -77,7 +77,7 @@ export default function Citizen() {
       reporter_name: user?.name,
     };
     if (offline) {
-      const env = buildEnvelope({
+      const env = await buildSignedEnvelope({
         eventType: "RESCUE_REQUEST_CREATED",
         payload,
         actorId: user?.user_id,
@@ -89,7 +89,9 @@ export default function Citizen() {
       setLocal(localProjections());
       setMsg({
         tone: "#FFB020",
-        text: `SAVED LOCALLY · EVENT ${env.event_id} QUEUED FOR MESH / SATELLITE RELAY`,
+        text: `SAVED LOCALLY · EVENT ${env.event_id} ${
+          env.signature ? "SIGNED ON DEVICE (ED25519)" : "UNSIGNED"
+        } · QUEUED FOR MESH / SATELLITE RELAY`,
       });
       setBusy(false);
       setSelected(null);
@@ -116,7 +118,7 @@ export default function Citizen() {
       setDesc("");
       loadMine();
     } catch (e) {
-      const env = buildEnvelope({
+      const env = await buildSignedEnvelope({
         eventType: "RESCUE_REQUEST_CREATED",
         payload,
         actorId: user?.user_id,

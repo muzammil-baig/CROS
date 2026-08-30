@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api, apiError, setToken, getToken } from "../lib/api";
 import { setDeviceId, deviceId } from "../lib/localstore";
+import { ensureKeypair, hasClientKey } from "../lib/devicecrypto";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -12,9 +13,11 @@ export function AuthProvider({ children }) {
 
   const registerDevice = useCallback(async () => {
     try {
+      const material = await ensureKeypair();
       const { data } = await api.post("/auth/device/register", {
         device_type: "web_client",
         label: `browser:${navigator.platform}`,
+        public_key: material ? material.public_spki : null,
       });
       setDeviceId(data.device_id);
       setDevice(data);
@@ -75,7 +78,8 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, permissions, can, login, logout, device, deviceId: deviceId() }}
+      value={{ user, permissions, can, login, logout, device, deviceId: deviceId(),
+               clientSigning: hasClientKey() }}
     >
       {children}
     </AuthContext.Provider>

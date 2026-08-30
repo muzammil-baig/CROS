@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
+from ..audit import record
 from ..auth import require
 from ..constants import EventType, Priority
 from ..db import db
@@ -12,7 +13,7 @@ from ..models import utcnow_iso
 from ..services import communication, sync as sync_svc
 from ..services.transport import registry, score_transport, select_transport
 from ..edge import gateway as edge
-from .deps import publish_offline_envelope
+from .deps import publish_offline_envelope, sign_if_delegated
 
 router = APIRouter(tags=["communication-sync"])
 
@@ -38,6 +39,12 @@ class SyncBody(BaseModel):
 class ResolveConflictBody(BaseModel):
     resolution: str
     reason: str = Field(min_length=3, max_length=500)
+
+
+class MeshRelayBody(BaseModel):
+    peer_gateway_id: str
+    max_events: int = Field(default=25, ge=1, le=200)
+    push_upstream: bool = True
 
 
 class GatewayConfigBody(BaseModel):
@@ -174,6 +181,136 @@ async def gateway_audit(gateway_id: str, limit: int = Query(100, le=500),
     return {"gateway_id": gateway_id, "entries": docs, "count": len(docs)}
 
 
+async def _run_pipelines_for(accepted_event_ids: list[str], actor_id: str):
+    """Newly accepted rescue requests must go through the real domain pipeline."""
+    if not accepted_event_ids:
+        return []
+    from ..services import operations
+    events = await db.events.find(
+        {"event_id": {"$in": accepted_event_ids},
+         "event_type": EventType.RESCUE_REQUEST_CREATED.value},
+        {"_id": 0, "payload": 1}).to_list(200)
+    processed = []
+    for e in events:
+        rid = (e.get("payload") or {}).get("request_id")
+        if not rid:
+            continue
+        try:
+            await operations.run_pipeline(db, rid, actor_id=actor_id)
+            processed.append(rid)
+        except Exception:
+            continue
+    return processed
+
+
+@router.post("/gateways/{gateway_id}/mesh-relay")
+async def mesh_relay(gateway_id: str, body: MeshRelayBody,
+                     user: dict = Depends(require("comm:write"))):
+    """Gateway-to-gateway relay over the mesh transport.
+
+    An isolated gateway hands its locally queued events to a peer that still has
+    backhaul. Logical event identity (event_id / HLC / causal parents) is preserved:
+    the relay is a transport hop, never a new domain event.
+    """
+    if gateway_id == body.peer_gateway_id:
+        raise ApiError(422, "VALIDATION_FAILED", "peer_gateway_id must differ from source")
+    source_doc = await db.gateways.find_one({"gateway_id": gateway_id}, {"_id": 0})
+    peer_doc = await db.gateways.find_one({"gateway_id": body.peer_gateway_id}, {"_id": 0})
+    if not source_doc or not peer_doc:
+        raise not_found("Gateway not found")
+
+    mesh = registry.get("mesh")
+    mesh_state = mesh.state()
+    if not mesh_state["available"]:
+        raise ApiError(503, "MESH_UNAVAILABLE",
+                       "Mesh transport is unavailable; relay cannot be attempted")
+
+    source = edge.node(gateway_id)
+    peer = edge.node(body.peer_gateway_id)
+    pending = source.outbound(limit=body.max_events)
+    hops, relayed, failed = [], [], []
+    for item in pending:
+        env = item["envelope"]
+        size_kb = communication.size_kb(env)
+        outcome = await mesh.send({"size_kb": size_kb, "payload": env})
+        hop = {"event_id": env["event_id"], "transport": "mesh",
+               "delivered": outcome["delivered"], "latency_ms": outcome.get("latency_ms"),
+               "error": outcome.get("error"), "at": utcnow_iso()}
+        hops.append(hop)
+        if outcome["delivered"]:
+            peer.ingest_inbound([env])
+            source.mark_synced([env["event_id"]], state="RELAYED")
+            relayed.append(env["event_id"])
+            await bus.emit_system(EventType.MESSAGE_SENT.value,
+                                  {"event_id": env["event_id"], "transport": "mesh",
+                                   "from_gateway_id": gateway_id,
+                                   "to_gateway_id": body.peer_gateway_id,
+                                   "hop": "mesh_relay", "simulated": mesh.simulated,
+                                   "latency_ms": outcome.get("latency_ms")},
+                                  priority=str(env.get("priority", "normal")))
+        else:
+            source.mark_synced([env["event_id"]], state="FAILED",
+                               error=outcome.get("error"))
+            failed.append({"event_id": env["event_id"], "error": outcome.get("error")})
+
+    upstream = None
+    if body.push_upstream and relayed:
+        relayed_set = set(relayed)
+        relayed_envs = [item["envelope"] for item in pending
+                        if item["envelope"]["event_id"] in relayed_set]
+        outbound = peer.outbound(limit=body.max_events)
+        envelopes, seen = [], set()
+        for env in relayed_envs + [o["envelope"] for o in outbound]:
+            eid = env["event_id"]
+            if eid in seen:
+                continue
+            seen.add(eid)
+            envelopes.append(await sign_if_delegated(env))
+        upstream = await sync_svc.exchange(
+            db, device_id=body.peer_gateway_id, actor_id=user["user_id"],
+            known_event_ids=peer.known_event_ids(), incoming_events=envelopes,
+            max_events=body.max_events)
+        peer.mark_synced(upstream["accepted_event_ids"] + upstream["duplicate_event_ids"])
+        peer.set_meta("last_sync", utcnow_iso())
+        pipelines = await _run_pipelines_for(upstream["accepted_event_ids"],
+                                            user["user_id"])
+        upstream = {k: upstream[k] for k in
+                    ("sync_state", "accepted_event_ids", "duplicate_event_ids",
+                     "rejected_events", "more_available")}
+        upstream["pipelines_run_for_requests"] = pipelines
+
+    await record(actor_id=user["user_id"], actor_role=user["role"],
+                 action="MESH_RELAY", entity_type="gateway", entity_id=gateway_id,
+                 detail={"peer": body.peer_gateway_id, "relayed": len(relayed),
+                         "failed": len(failed)}, immutable=True)
+    return {
+        "source_gateway_id": gateway_id,
+        "peer_gateway_id": body.peer_gateway_id,
+        "transport": "mesh",
+        "simulated": mesh.simulated,
+        "mesh_state": mesh_state,
+        "attempted": len(pending),
+        "relayed_event_ids": relayed,
+        "failed": failed,
+        "hops": hops,
+        "identity_preserved": True,
+        "upstream": upstream,
+        "source_runtime": source.health(),
+        "peer_runtime": peer.health(),
+    }
+
+
+@router.post("/gateways/{gateway_id}/queue-local")
+async def queue_local_event(gateway_id: str, envelope: dict,
+                            user: dict = Depends(require("comm:write"))):
+    """Persist an event into a gateway's local SQLite log + outbound queue (offline)."""
+    if not await db.gateways.find_one({"gateway_id": gateway_id}, {"_id": 0}):
+        raise not_found("Gateway not found")
+    node = edge.node(gateway_id)
+    result = node.append_event(envelope)
+    return {"gateway_id": gateway_id, **result, "edge_runtime": node.health()}
+
+
 @router.post("/gateways/{gateway_id}/sync")
 async def gateway_sync(gateway_id: str, body: SyncBody,
                        user: dict = Depends(require("sync:exchange"))):
@@ -192,7 +329,7 @@ async def gateway_sync(gateway_id: str, body: SyncBody,
         if e["event_id"] in seen:
             continue
         seen.add(e["event_id"])
-        unique.append(e)
+        unique.append(await sign_if_delegated(e))
     result = await sync_svc.exchange(
         db, device_id=gateway_id, actor_id=user["user_id"],
         known_event_ids=body.known_event_ids or node.known_event_ids(),
@@ -201,6 +338,8 @@ async def gateway_sync(gateway_id: str, body: SyncBody,
     node.mark_synced(result["accepted_event_ids"] + result["duplicate_event_ids"])
     node.ingest_inbound(result["events"])
     node.set_meta("last_sync", utcnow_iso())
+    result["pipelines_run_for_requests"] = await _run_pipelines_for(
+        result["accepted_event_ids"], user["user_id"])
     devices = await db.devices.find({}, {"_id": 0, "device_id": 1, "public_key": 1,
                                           "revoked": 1}).to_list(500)
     node.cache_devices(devices)

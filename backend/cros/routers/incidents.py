@@ -49,6 +49,13 @@ class CreateHazardBody(BaseModel):
     water_level_m: Optional[float] = None
     rise_rate_m_per_hour: Optional[float] = None
     rainfall_mm_per_hour: Optional[float] = None
+    wind_speed_kph: Optional[float] = None
+    gust_speed_kph: Optional[float] = None
+    storm_surge_m: Optional[float] = None
+    surge_rate_m_per_hour: Optional[float] = None
+    intensification_kph_per_hour: Optional[float] = None
+    track_speed_kph: Optional[float] = None
+    debris: bool = False
     road_blocked: bool = False
     incident_id: Optional[str] = None
 
@@ -161,6 +168,11 @@ async def incident_timeline(incident_id: str, limit: int = Query(200, le=1000),
 async def create_hazard(body: CreateHazardBody,
                         user: dict = Depends(require("hazard:create"))):
     hazard_id = f"HZ-{new_ulid()}"
+    if body.hazard_type not in registered_types() and body.hazard_type not in (
+            "bridge_damage", "debris", "structural", "fire", "landslide"):
+        raise ApiError(422, "VALIDATION_FAILED",
+                       f"Unsupported hazard_type; modules: {registered_types()}",
+                       [{"field": "hazard_type", "issue": "no hazard module registered"}])
     module = get_module(body.hazard_type)
     payload = body.model_dump()
     payload.update({
@@ -171,13 +183,17 @@ async def create_hazard(body: CreateHazardBody,
                          else "UNVERIFIED",
                          "confidence": 0.9 if user["role"] != "citizen" else 0.5},
         "active": True})
-    if body.hazard_type == "flood" and body.water_level_m is not None:
-        payload["severity"] = module.severity(payload)
-        payload["road_blocked"] = module.blocks_road(payload)
+    if body.hazard_type in registered_types():
+        # Hazard-specific numerical logic stays inside the pluggable module.
+        computed = module.severity(payload)
+        if computed > 0:
+            payload["severity"] = computed
+        payload["road_blocked"] = module.blocks_road(payload) or body.road_blocked
     result = await emit_client_event(event_type=EventType.HAZARD_REPORTED.value,
                                      payload=payload, user=user, priority="high")
     doc = await db.hazards.find_one({"hazard_id": hazard_id}, {"_id": 0})
-    return {"hazard": doc, "event_id": result.get("event_id")}
+    return {"hazard": doc, "hazard_module": body.hazard_type if body.hazard_type
+            in registered_types() else "generic", "event_id": result.get("event_id")}
 
 
 @router.get("/hazards")

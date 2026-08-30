@@ -15,6 +15,8 @@ export default function Comms({ mode }) {
   const [gateways, setGateways] = useState([]);
   const [sync, setSync] = useState(null);
   const [note, setNote] = useState(null);
+  const [peers, setPeers] = useState({});
+  const [relay, setRelay] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -160,6 +162,38 @@ export default function Comms({ mode }) {
                       <Btn testid={`gw-sync-${g.gateway_id}`} variant="cyan" onClick={() => run(() => api.post(`/gateways/${g.gateway_id}/sync`, { device_id: g.gateway_id, known_event_ids: [], events: [], max_events: 25 }), `GATEWAY ${g.gateway_id} SYNC ROUND COMPLETE`)}>
                         SYNC
                       </Btn>
+                      <select
+                        data-testid={`gw-peer-${g.gateway_id}`}
+                        value={peers[g.gateway_id] || ""}
+                        onChange={(e) => setPeers((p) => ({ ...p, [g.gateway_id]: e.target.value }))}
+                        className="font-micro text-[10px] bg-void border border-line text-neutral-300 px-1 py-1"
+                      >
+                        <option value="">PEER…</option>
+                        {gateways
+                          .filter((o) => o.gateway_id !== g.gateway_id)
+                          .map((o) => (
+                            <option key={o.gateway_id} value={o.gateway_id}>
+                              {o.gateway_id}
+                            </option>
+                          ))}
+                      </select>
+                      <Btn
+                        testid={`gw-mesh-relay-${g.gateway_id}`}
+                        variant="green"
+                        disabled={!peers[g.gateway_id]}
+                        onClick={() =>
+                          run(async () => {
+                            const { data } = await api.post(`/gateways/${g.gateway_id}/mesh-relay`, {
+                              peer_gateway_id: peers[g.gateway_id],
+                              max_events: 25,
+                              push_upstream: true,
+                            });
+                            setRelay(data);
+                          }, `MESH RELAY ${g.gateway_id} → ${peers[g.gateway_id]} COMPLETE`)
+                        }
+                      >
+                        MESH RELAY
+                      </Btn>
                       <Btn testid={`gw-restart-${g.gateway_id}`} variant="amber" onClick={() => run(() => api.post(`/gateways/${g.gateway_id}/restart`), `GATEWAY ${g.gateway_id} RESTARTED`)}>
                         RESTART
                       </Btn>
@@ -182,6 +216,33 @@ export default function Comms({ mode }) {
               </div>
             ))}
           </Panel>
+          {relay && (
+            <Panel title="MESH RELAY RESULT · TRANSPORT HOP (IDENTITY PRESERVED)" testid="panel-mesh-relay" className="lg:col-span-2">
+              <div className="p-3">
+                <div className="flex flex-wrap gap-2 mb-2">
+                  <Badge value="MESH_ONLY" label={`${relay.source_gateway_id} → ${relay.peer_gateway_id}`} />
+                  <Badge value={relay.relayed_event_ids.length ? "SYNCED" : "QUEUED"} label={`RELAYED_${relay.relayed_event_ids.length}`} />
+                  {relay.simulated && <Badge value="SIMULATED" label="MESH_SIM" />}
+                  {relay.upstream && <Badge value={relay.upstream.sync_state} label={`UPSTREAM_${relay.upstream.sync_state}`} />}
+                </div>
+                <KV k="ATTEMPTED" v={relay.attempted} />
+                <KV k="RELAYED" v={relay.relayed_event_ids.length} tone="#00FF66" />
+                <KV k="FAILED" v={relay.failed.length} tone="#FF3B30" />
+                <KV k="NEW EVENT IDS MINTED" v="0 (identity preserved)" tone="#00E5FF" />
+                {relay.upstream && (
+                  <>
+                    <KV k="UPSTREAM ACCEPTED" v={relay.upstream.accepted_event_ids.length} />
+                    <KV k="UPSTREAM DUPLICATES" v={relay.upstream.duplicate_event_ids.length} />
+                  </>
+                )}
+                {relay.hops.slice(0, 8).map((h) => (
+                  <div key={h.event_id} className="font-micro text-[9px] text-neutral-500">
+                    · {h.event_id} via {h.transport} {h.delivered ? "DELIVERED" : `FAILED (${h.error})`} {h.latency_ms ? `${h.latency_ms}ms` : ""}
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
         </div>
       </div>
     </Shell>

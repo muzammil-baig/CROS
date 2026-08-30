@@ -70,6 +70,60 @@ class FloodModule(HazardModule):
         return ["boat", "helicopter", "road"]
 
 
+class CycloneModule(HazardModule):
+    """Wind/surge model: severity from sustained wind, gusts and storm surge depth."""
+    hazard_type = "cyclone"
+    DAMAGING_WIND_KPH = 120.0
+    IMPASSABLE_SURGE_M = 0.6
+
+    def severity(self, hazard: dict) -> float:
+        wind = float(hazard.get("wind_speed_kph") or 0.0)
+        gust = float(hazard.get("gust_speed_kph") or wind * 1.3)
+        surge = float(hazard.get("storm_surge_m") or 0.0)
+        return round(min(1.0, 0.5 * min(1.0, wind / 200.0) + 0.2 * min(1.0, gust / 260.0)
+                         + 0.3 * min(1.0, surge / 3.0)), 3)
+
+    def predict(self, hazard: dict, horizon_minutes: int = 60) -> dict:
+        wind = float(hazard.get("wind_speed_kph") or 0.0)
+        trend = float(hazard.get("intensification_kph_per_hour") or 0.0)
+        surge = float(hazard.get("storm_surge_m") or 0.0)
+        surge_rate = float(hazard.get("surge_rate_m_per_hour") or 0.0)
+        hours = horizon_minutes / 60.0
+        proj_wind = max(0.0, wind + trend * hours)
+        proj_surge = max(0.0, surge + surge_rate * hours)
+        projected = {"wind_speed_kph": proj_wind, "storm_surge_m": proj_surge,
+                     "gust_speed_kph": proj_wind * 1.3}
+        drift = float(hazard.get("track_speed_kph") or 18.0) * hours
+        return {
+            "hazard_id": hazard.get("hazard_id"),
+            "horizon_minutes": horizon_minutes,
+            "current_wind_speed_kph": wind,
+            "projected_wind_speed_kph": round(proj_wind, 1),
+            "current_storm_surge_m": surge,
+            "projected_storm_surge_m": round(proj_surge, 3),
+            "projected_severity": self.severity(projected),
+            "projected_track_drift_km": round(drift, 1),
+            "projected_area_growth_factor": round(1.0 + min(1.2, drift / 40.0), 3),
+            "projected_geometry": _scale_polygon(hazard.get("geometry"),
+                                                 math.sqrt(1.0 + min(1.2, drift / 40.0))),
+            "damaging_winds": proj_wind >= self.DAMAGING_WIND_KPH,
+            "impassable_for_road_vehicles": proj_surge >= self.IMPASSABLE_SURGE_M
+            or proj_wind >= self.DAMAGING_WIND_KPH,
+            "navigable_by_boat": proj_wind < self.DAMAGING_WIND_KPH,
+            "verification_status": "PREDICTED",
+            "model": "cyclone_wind_surge_v1",
+            "computed_at": utcnow_iso(),
+        }
+
+    def blocks_road(self, hazard: dict) -> bool:
+        return (float(hazard.get("wind_speed_kph") or 0.0) >= self.DAMAGING_WIND_KPH
+                or float(hazard.get("storm_surge_m") or 0.0) >= self.IMPASSABLE_SURGE_M
+                or bool(hazard.get("debris")))
+
+    def vehicle_profiles(self) -> list[str]:
+        return ["road", "boat"]
+
+
 def _scale_polygon(geometry: dict | None, factor: float):
     if not geometry or geometry.get("type") != "Polygon":
         return geometry
@@ -99,3 +153,4 @@ def registered_types() -> list[str]:
 
 
 register(FloodModule())
+register(CycloneModule())

@@ -14,6 +14,7 @@
  */
 
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+import { signEnvelope } from "./devicecrypto";
 const K = {
   log: "cros.local.events",
   queue: "cros.local.queue",
@@ -95,8 +96,7 @@ export function hlcMerge(remote) {
   write(K.hlc, state);
 }
 
-export function buildEnvelope({ eventType, payload, actorId, priority = "normal", ttl = 172800 }) {
-  return {
+export function buildEnvelope({ eventType, payload, actorId, priority = "normal", ttl = 172800 }) {  return {
     event_id: ulid(),
     event_type: eventType,
     schema_version: 1,
@@ -111,6 +111,13 @@ export function buildEnvelope({ eventType, payload, actorId, priority = "normal"
     signature: null,
     payload,
   };
+}
+
+export async function buildSignedEnvelope(args) {
+  const env = buildEnvelope(args);
+  const signature = await signEnvelope(env);
+  if (signature) env.signature = signature;
+  return env;
 }
 
 export function appendLocalEvent(envelope) {

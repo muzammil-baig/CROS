@@ -150,9 +150,10 @@ def compute_route(graph_doc: dict, hazards: list[dict], origin, destination,
     """Returns a route with geometry, ETA, hazard exposure and graph freshness."""
     overlay = hazard_overlay(graph_doc, hazards)
     if vehicle_profile == "boat":
-        # Boats traverse flooded segments; blocking only on debris/structural failure.
+        # Boats traverse water-covered segments; only non-water hazards (debris,
+        # structural failure, damaging wind) block them. Hazard-agnostic rule.
         overlay = {k: v for k, v in overlay.items()
-                   if v.get("hazard_type") in ("bridge_damage", "debris", "structural")}
+                   if v.get("hazard_type") != "flood"}
     src = nearest_node(graph_doc, origin)
     dst = nearest_node(graph_doc, destination)
 
