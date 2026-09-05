@@ -21,6 +21,8 @@ from .models import EventEnvelope, utcnow_iso
 from .observability import incr, span
 from .realtime import manager
 from .ulid import new_ulid
+from .config import PERSISTENCE_BACKEND
+from .postgres import insert_event as insert_postgres_event
 
 logger = logging.getLogger("cros.events")
 
@@ -147,13 +149,31 @@ class EventBus:
             env["signature_verified"] = verified
             env["simulation"] = simulation
             env["applied"] = False
-            try:
-                await db.events.insert_one(dict(env))
-            except Exception as exc:  # duplicate key race
-                if "duplicate key" in str(exc).lower():
+            if PERSISTENCE_BACKEND == "postgres":
+                postgres_envelope = dict(env)
+                postgres_envelope["logical_timestamp"] = postgres_envelope.pop("logical_timestamp")
+                postgres_envelope["wall_clock_timestamp"] = datetime.fromisoformat(
+                    postgres_envelope["wall_clock_timestamp"].replace("Z", "+00:00")
+                )
+                postgres_envelope["received_at"] = datetime.fromisoformat(
+                    postgres_envelope["received_at"].replace("Z", "+00:00")
+                )
+                try:
+                    inserted = await insert_postgres_event(postgres_envelope)
+                except Exception:
+                    logger.exception("postgres event persistence failed: %s", env["event_id"])
+                    raise
+                if not inserted:
                     incr("events.duplicate")
                     return {"status": "duplicate", "event_id": env["event_id"]}
-                raise
+            else:
+                try:
+                    await db.events.insert_one(dict(env))
+                except Exception as exc:  # duplicate key race
+                    if "duplicate key" in str(exc).lower():
+                        incr("events.duplicate")
+                        return {"status": "duplicate", "event_id": env["event_id"]}
+                    raise
 
             incr("events.persisted")
             incr(f"events.type.{env['event_type']}")
