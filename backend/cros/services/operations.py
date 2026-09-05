@@ -4,6 +4,8 @@ Every state change goes through validated commands that create events; the
 projections update state. Nothing here mutates another aggregate directly
 without an event.
 """
+from __future__ import annotations
+
 import uuid
 
 from ..audit import record

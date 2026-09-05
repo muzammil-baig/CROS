@@ -1,4 +1,6 @@
 """Priority-aware outbound message queue + delivery over the transport abstraction."""
+from __future__ import annotations
+
 import json
 
 from ..constants import EventType, Priority

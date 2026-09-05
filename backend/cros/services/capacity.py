@@ -4,6 +4,8 @@ Capacity is never assigned last-write-wins. Every change is an idempotent
 increment/decrement operation identified by operation_id; the current value is
 the fold of all operations, so concurrent edge updates converge.
 """
+from __future__ import annotations
+
 from ..models import utcnow_iso
 
 COUNTER_KINDS = {

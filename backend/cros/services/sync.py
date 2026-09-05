@@ -1,4 +1,6 @@
 """Synchronization: digest exchange, priority-aware partial transfer, conflict handling."""
+from __future__ import annotations
+
 from ..constants import (FIELD_CLASS_APPEND_ONLY, FIELD_CLASS_COUNTER, FIELD_CLASS_LWW,
                          FIELD_CLASS_STATE_MACHINE, MISSION_TRANSITIONS, EventType,
                          MissionStatus)

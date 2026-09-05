@@ -6,6 +6,8 @@ database. Used by the edge/gateway runtime and by the browser fallback signer
 when WebCrypto Ed25519 is unavailable (labelled SIMULATED_SIGNER in the UI).
 """
 import json
+from typing import Optional
+
 from .config import EDGE_KEYSTORE_DIR
 from .crypto import generate_keypair, sign
 
@@ -27,7 +29,7 @@ def has_key(device_id: str) -> bool:
     return _path(device_id).exists()
 
 
-def get_private_key(device_id: str) -> str | None:
+def get_private_key(device_id: str) -> Optional[str]:
     p = _path(device_id)
     if not p.exists():
         return None
@@ -41,7 +43,7 @@ def provision(device_id: str) -> str:
     return pub
 
 
-def sign_envelope(device_id: str, envelope: dict) -> str | None:
+def sign_envelope(device_id: str, envelope: dict) -> Optional[str]:
     priv = get_private_key(device_id)
     if priv is None:
         return None

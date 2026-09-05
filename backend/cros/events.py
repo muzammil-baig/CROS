@@ -4,6 +4,8 @@ Append-only event log persisted in MongoDB (production DB and a physically
 separate simulation DB), with idempotent consumers, signature verification,
 HLC merge, TTL enforcement and realtime fan-out.
 """
+from __future__ import annotations
+
 import asyncio
 import logging
 import socket

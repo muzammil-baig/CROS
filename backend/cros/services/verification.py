@@ -3,6 +3,8 @@
 Computes corroboration / contradiction / freshness and a confidence score from
 persisted provenance records. Never deletes contributing reports.
 """
+from __future__ import annotations
+
 import math
 from datetime import datetime, timezone
 

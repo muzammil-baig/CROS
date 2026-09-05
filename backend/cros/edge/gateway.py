@@ -9,6 +9,8 @@ NOTE: SpatiaLite extension binaries are unavailable in this container, so
 geometry is stored as GeoJSON text and spatial predicates are evaluated with
 Shapely (same semantics, no spatial index). Recorded as a known limitation.
 """
+from __future__ import annotations
+
 import json
 import sqlite3
 from pathlib import Path
