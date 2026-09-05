@@ -1,17 +1,44 @@
-from motor.motor_asyncio import AsyncIOMotorClient
-from .config import MONGO_URL, DB_NAME, SIM_DB_NAME
+"""Persistence boundary.
 
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
-sim_db = client[SIM_DB_NAME]
+Mongo is retained as an explicit rollback adapter. PostgreSQL mode must not import
+Motor or touch Mongo configuration during application startup.
+"""
+from .config import PERSISTENCE_BACKEND
+
+
+class _PostgresHandle:
+    name = "postgresql"
+
+    def __getattr__(self, name):
+        raise RuntimeError(
+            f"Mongo collection '{name}' is not available in PostgreSQL mode; "
+            "migrate this repository call to cros.postgres"
+        )
+
+
+if PERSISTENCE_BACKEND == "postgres":
+    client = None
+    db = _PostgresHandle()
+    sim_db = _PostgresHandle()
+else:
+    from motor.motor_asyncio import AsyncIOMotorClient
+    from .config import MONGO_URL, DB_NAME, SIM_DB_NAME
+
+    client = AsyncIOMotorClient(MONGO_URL)
+    db = client[DB_NAME]
+    sim_db = client[SIM_DB_NAME]
 
 
 def get_db(simulation: bool = False):
-    """Physical database isolation between production and simulation state."""
     return sim_db if simulation else db
 
 
 async def ensure_indexes():
+    if PERSISTENCE_BACKEND == "postgres":
+        from .postgres import check_connection
+        if not await check_connection():
+            raise RuntimeError("PostgreSQL connectivity check failed")
+        return
     for d in (db, sim_db):
         await d.events.create_index("event_id", unique=True)
         await d.events.create_index([("event_type", 1), ("wall_clock_timestamp", -1)])

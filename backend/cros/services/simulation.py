@@ -15,7 +15,7 @@ import asyncio
 import random
 from datetime import datetime, timezone
 
-from ..config import DB_NAME, SIM_DB_NAME
+from ..config import DB_NAME, PERSISTENCE_BACKEND, SIM_DB_NAME
 from ..constants import EventType, Priority
 from ..db import get_db
 from ..events import bus
@@ -62,6 +62,10 @@ async def _snapshot_world(sim_db, prod_db, simulation_id: str):
 
 
 async def start(*, scenario: str, params: dict, actor: dict) -> dict:
+    if PERSISTENCE_BACKEND == "postgres":
+        raise RuntimeError(
+            "PostgreSQL simulation repositories are not yet wired; refusing to use Mongo simulation state"
+        )
     if scenario not in SCENARIOS:
         raise ValueError(f"unknown scenario: {scenario}")
     sim_db = get_db(True)

@@ -6,12 +6,11 @@ existing services migrate incrementally.
 """
 from __future__ import annotations
 
-from __future__ import annotations
-
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import asyncpg
 
@@ -19,6 +18,15 @@ from .config import POSTGRES_URL_NON_POOLING
 
 
 _pool: asyncpg.Pool | None = None
+
+
+def _uuid_or_none(value: str | None) -> UUID | None:
+    if not value:
+        return None
+    try:
+        return UUID(str(value))
+    except ValueError:
+        return uuid5(NAMESPACE_URL, f"cros:{value}")
 
 
 async def open_pool() -> asyncpg.Pool:
@@ -66,7 +74,9 @@ async def insert_event(envelope: dict[str, Any]) -> bool:
             envelope.get("correlation_id"),
             __import__("json").dumps(envelope.get("causal_parent_ids", [])),
             envelope["logical_timestamp"], envelope["wall_clock_timestamp"],
-            envelope.get("origin_device_id"), envelope.get("origin_actor_id"),
+            None if envelope.get("origin_device_id") == "cloud-service-node"
+            else _uuid_or_none(envelope.get("origin_device_id")),
+            _uuid_or_none(envelope.get("origin_actor_id")),
             __import__("json").dumps(envelope["payload"]), envelope.get("signature"),
             envelope.get("received_at") or datetime.now(timezone.utc),
         )

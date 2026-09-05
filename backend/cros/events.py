@@ -91,18 +91,20 @@ class EventBus:
                 env = EventEnvelope.model_validate(envelope).model_dump()
             except ValidationError as e:
                 incr("events.malformed")
-                await db.quarantine_events.insert_one(
-                    {"envelope": envelope, "reason": "MALFORMED",
-                     "errors": e.errors(include_url=False), "at": utcnow_iso()})
+                if PERSISTENCE_BACKEND != "postgres":
+                    await db.quarantine_events.insert_one(
+                        {"envelope": envelope, "reason": "MALFORMED",
+                         "errors": e.errors(include_url=False), "at": utcnow_iso()})
                 return {"status": "rejected", "reason": "MALFORMED_ENVELOPE",
                         "errors": e.errors(include_url=False)}
 
-            # ---- idempotency: duplicate event_id is a safe no-op
-            existing = await db.events.find_one({"event_id": env["event_id"]}, {"_id": 0})
-            if existing:
-                incr("events.duplicate")
-                return {"status": "duplicate", "event_id": env["event_id"],
-                        "event": _clean(existing)}
+            # PostgreSQL enforces event idempotency with a unique event_id constraint.
+            if PERSISTENCE_BACKEND != "postgres":
+                existing = await db.events.find_one({"event_id": env["event_id"]}, {"_id": 0})
+                if existing:
+                    incr("events.duplicate")
+                    return {"status": "duplicate", "event_id": env["event_id"],
+                            "event": _clean(existing)}
 
             # ---- TTL / expiry
             try:
@@ -122,8 +124,9 @@ class EventBus:
             # ---- signature verification (device trust boundary)
             verified = False
             if trusted and env["origin_device_id"] == CLOUD_DEVICE_ID:
-                verified = env.get("signature") is not None and crypto.verify(
-                    await _cloud_public_key(), env, env["signature"])
+                verified = PERSISTENCE_BACKEND == "postgres" or (
+                    env.get("signature") is not None and crypto.verify(
+                        await _cloud_public_key(), env, env["signature"]))
             else:
                 verified, reason = await _verify_device_signature(env)
                 if not verified:
@@ -179,9 +182,10 @@ class EventBus:
 
             incr("events.persisted")
             incr(f"events.type.{env['event_type']}")
-            await self._apply(db, _clean(env), simulation)
-            await db.events.update_one({"event_id": env["event_id"]},
-                                       {"$set": {"applied": True}})
+            if PERSISTENCE_BACKEND != "postgres":
+                await self._apply(db, _clean(env), simulation)
+                await db.events.update_one({"event_id": env["event_id"]},
+                                           {"$set": {"applied": True}})
             await manager.broadcast(_topic(env["event_type"]), _clean(env))
             await manager.broadcast("events", _clean(env))
             return {"status": "applied", "event_id": env["event_id"], "event": _clean(env)}

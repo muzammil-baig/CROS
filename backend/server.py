@@ -13,6 +13,7 @@ from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 
 from cros import projections  # noqa: F401,E402  (registers event consumers)
 from cros.config import API_V1, CORS_ORIGINS, SUPPORTED_SCHEMA_VERSIONS  # noqa: E402
+from cros.config import PERSISTENCE_BACKEND  # noqa: E402
 from cros.db import db, ensure_indexes  # noqa: E402
 from cros.errors import ApiError, error_body  # noqa: E402
 from cros.events import bus, ensure_cloud_identity  # noqa: E402
@@ -47,11 +48,17 @@ async def root():
 @legacy.get("/health")
 async def health():
     try:
+        if PERSISTENCE_BACKEND == "postgres":
+            from cros.postgres import healthcheck
+            result = await healthcheck()
+            status = 200 if result["status"] == "up" else 503
+            return JSONResponse(status_code=status, content={**result, "at": utcnow_iso()})
         await db.command("ping")
-        return {"status": "ok", "database": "up", "at": utcnow_iso()}
+        return {"status": "ok", "database": "up", "backend": "mongodb", "at": utcnow_iso()}
     except Exception as exc:
         return JSONResponse(status_code=503,
                             content={"status": "degraded", "database": "down",
+                                     "backend": PERSISTENCE_BACKEND,
                                      "error": str(exc)[:200]})
 
 
@@ -100,6 +107,9 @@ async def validation_handler(request: Request, exc: RequestValidationError):
 @app.on_event("startup")
 async def startup():
     await ensure_indexes()
+    if PERSISTENCE_BACKEND == "postgres":
+        logger.info("PostgreSQL mode: Mongo seed/bootstrap paths are disabled until repository migration completes")
+        return
     await ensure_cloud_identity()
     from cros.seed import credentials_markdown, ensure_gateway_identities, seed
     result = await seed()
@@ -115,5 +125,9 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
+    if PERSISTENCE_BACKEND == "postgres":
+        from cros.postgres import close
+        await close()
+        return
     from cros.db import client
     client.close()
