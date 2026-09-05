@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any
 
 import asyncpg
@@ -65,7 +66,7 @@ async def insert_event(envelope: dict[str, Any]) -> bool:
             envelope["logical_timestamp"], envelope["wall_clock_timestamp"],
             envelope.get("origin_device_id"), envelope.get("origin_actor_id"),
             __import__("json").dumps(envelope["payload"]), envelope.get("signature"),
-            envelope.get("received_at"),
+            envelope.get("received_at") or datetime.now(timezone.utc),
         )
     return result.endswith("1")
 
