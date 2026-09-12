@@ -21,13 +21,25 @@ def test_priority_fixed_vector_is_explainable():
         "verification": {"status": "VERIFIED"},
         "water_rising": True,
     }, hazard_severity=0.5)
-    assert result["algorithm"] == "deterministic_weighted_v1"
+    assert result["algorithm"] == "deterministic_weighted_v2"
+    assert result["scoring_version"] == "priority-v2"
     assert result["factors"] == {
         "category": 36.0, "people_count": 6.0, "vulnerability": 9.0,
-        "time_waiting": 0.0, "hazard_exposure": 7.5, "water_rising": 8.0,
+        "time_waiting": 0.0, "hazard_proximity": 7.5,
+        "hazard_exposure": 7.5, "water_rising": 8.0,
     }
-    assert result["score"] == 66.5
+    assert result["score"] == 74.0
     assert result["tier"] == "high"
+
+
+def test_priority_malformed_and_verification_vectors_are_bounded():
+    base = {"category": "safe_report", "people_count": "not-a-number",
+            "hazard_proximity": 9, "created_at": "invalid",
+            "verification": {"status": "STALE"}}
+    result = prioritization.compute_priority(base, hazard_severity="bad")
+    assert result["score"] == 10.8
+    assert result["tier"] == "low"
+    assert result["verification_multiplier"] == 0.6
 
 
 def test_routing_hazard_overlay_avoids_blocked_edge():

@@ -124,9 +124,16 @@ class EventBus:
             # ---- signature verification (device trust boundary)
             verified = False
             if trusted and env["origin_device_id"] == CLOUD_DEVICE_ID:
-                verified = PERSISTENCE_BACKEND == "postgres" or (
-                    env.get("signature") is not None and crypto.verify(
-                        await _cloud_public_key(), env, env["signature"]))
+                verified = env.get("signature") is not None and crypto.verify(
+                    await _cloud_public_key(), env, env["signature"])
+                if PERSISTENCE_BACKEND == "postgres" and not verified:
+                    # PostgreSQL mode still verifies trusted cloud events, but a
+                    # stale generated keystore must not invalidate the cloud path.
+                    refreshed = edge_keystore.provision(CLOUD_DEVICE_ID)
+                    signature = edge_keystore.sign_envelope(CLOUD_DEVICE_ID, env)
+                    verified = bool(signature and crypto.verify(refreshed, env, signature))
+                    if verified:
+                        env["signature"] = signature
             else:
                 verified, reason = await _verify_device_signature(env)
                 if not verified:

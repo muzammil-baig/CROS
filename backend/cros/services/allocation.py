@@ -80,7 +80,8 @@ def propose(requests: list[dict], resources: list[dict], graph_doc: dict,
     """Exact optimal assignment; deterministic greedy fallback on solver failure."""
     if not requests or not resources:
         return {"assignments": [], "unassigned_request_ids": [r["request_id"] for r in requests],
-                "solver": "none", "objective": 0.0, "computed_at": utcnow_iso()}
+                "solver": "none", "objective": 0.0, "allocation_version": "allocation-v2",
+                "computed_at": utcnow_iso()}
 
     matrix, meta = [], []
     for rq in requests:
@@ -144,5 +145,7 @@ def propose(requests: list[dict], resources: list[dict], graph_doc: dict,
         "objective": round(objective, 4),
         "constraints": ["availability", "capacity", "suitability", "travel_time",
                         "route_feasibility", "mission_priority"],
+        "allocation_version": "allocation-v2",
+        "factor_breakdown": {"objective": "min_cost_assignment", "infeasible_cost": INFEASIBLE},
         "computed_at": utcnow_iso(),
     }

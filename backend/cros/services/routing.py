@@ -199,6 +199,7 @@ def compute_route(graph_doc: dict, hazards: list[dict], origin, destination,
         "graph_age_seconds": _age(graph_doc["updated_at"]),
         "computed_at": utcnow_iso(),
         "algorithm": "dijkstra_networkx_hazard_overlay_v1",
+        "routing_version": "route-v1-networkx-fallback",
     }
 
 

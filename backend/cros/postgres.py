@@ -177,6 +177,8 @@ async def list_simulation_events(run_id: str, limit: int = 200) -> list[dict[str
 
 
 def _nested_value(document: Any, path: str) -> tuple[bool, Any]:
+    if not isinstance(path, str):
+        return False, None
     parts = path.split(".", 1)
     if isinstance(document, list):
         values = [_nested_value(item, path)[1] for item in document
@@ -197,7 +199,7 @@ def _matches_value(actual: Any, expected: Any) -> bool:
 
 async def _entity_matches(payload: dict[str, Any], query: dict[str, Any]) -> bool:
     for key, expected in query.items():
-        if key.startswith("$"):
+        if not isinstance(key, str) or key.startswith("$"):
             continue
         exists, actual = _nested_value(payload, key)
         if isinstance(expected, dict):
