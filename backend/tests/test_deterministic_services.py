@@ -1,4 +1,15 @@
-from cros.services import allocation, prioritization, routing, transport
+import pytest
+
+from cros.services import allocation, capacity, prioritization, routing, transport
+
+
+def test_capacity_rejects_invalid_operations_before_storage():
+    with pytest.raises(ValueError, match="positive"):
+        # Validation is intentionally independent of database availability.
+        import asyncio
+        asyncio.run(capacity.apply_operation(None, facility_id="FAC-1", counter_kind="occupancy",
+                                             operation="increment", amount=0,
+                                             operation_id="OP-1", actor_id="actor"))
 
 
 def test_priority_fixed_vector_is_explainable():
