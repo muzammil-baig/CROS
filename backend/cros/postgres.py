@@ -176,19 +176,38 @@ async def list_simulation_events(run_id: str, limit: int = 200) -> list[dict[str
     return [dict(row) for row in rows]
 
 
+def _nested_value(document: Any, path: str) -> tuple[bool, Any]:
+    parts = path.split(".", 1)
+    if isinstance(document, list):
+        values = [_nested_value(item, path)[1] for item in document
+                  if _nested_value(item, path)[0]]
+        return bool(values), values
+    if not isinstance(document, dict) or parts[0] not in document:
+        return False, None
+    if len(parts) == 1:
+        return True, document[parts[0]]
+    return _nested_value(document[parts[0]], parts[1])
+
+
+def _matches_value(actual: Any, expected: Any) -> bool:
+    if isinstance(actual, list) and not isinstance(expected, list):
+        return expected in actual
+    return actual == expected
+
+
 async def _entity_matches(payload: dict[str, Any], query: dict[str, Any]) -> bool:
     for key, expected in query.items():
         if key.startswith("$"):
             continue
-        actual = payload.get(key)
+        exists, actual = _nested_value(payload, key)
         if isinstance(expected, dict):
-            if "$in" in expected and actual not in expected["$in"]:
+            if "$in" in expected and not any(_matches_value(actual, item) for item in expected["$in"]):
                 return False
-            if "$ne" in expected and actual == expected["$ne"]:
+            if "$ne" in expected and _matches_value(actual, expected["$ne"]):
                 return False
-            if "$exists" in expected and (key in payload) != expected["$exists"]:
+            if "$exists" in expected and exists != expected["$exists"]:
                 return False
-        elif actual != expected:
+        elif not exists or not _matches_value(actual, expected):
             return False
     return True
 

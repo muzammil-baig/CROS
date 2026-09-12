@@ -74,6 +74,13 @@ class _PostgresCollection:
         if "$push" in update:
             for key, value in update["$push"].items():
                 doc.setdefault(key, []).append(value)
+        if "$addToSet" in update:
+            for key, value in update["$addToSet"].items():
+                values = value.get("$each", []) if isinstance(value, dict) and "$each" in value else [value]
+                target = doc.setdefault(key, [])
+                for item in values:
+                    if item not in target:
+                        target.append(item)
         doc.setdefault("_id", str(uuid4()))
         entity_id = str(doc.get("_id") or doc.get("id"))
         await postgres.upsert_entity(self.collection, entity_id, doc)
