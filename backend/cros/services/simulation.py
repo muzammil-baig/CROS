@@ -61,12 +61,83 @@ async def _snapshot_world(sim_db, prod_db, simulation_id: str):
         await sim_db[coll].delete_many({})
 
 
+async def _start_postgres(*, scenario: str, params: dict, actor: dict) -> dict:
+    from .. import postgres
+
+    isolation = {
+        "schema": "simulation",
+        "event_namespace": "simulation",
+        "production_writes": False,
+        "transport_registry": "dedicated",
+    }
+    run = await postgres.create_simulation_run(
+        scenario=scenario,
+        params=params,
+        started_by=actor.get("user_id"),
+        description=SCENARIOS[scenario],
+        isolation=isolation,
+    )
+    run_id = str(run["id"])
+    _runs[run_id] = {"abort": False, "registry": TransportRegistry()}
+    await postgres.append_simulation_event(
+        run_id=run_id,
+        event_id=f"sim-{run_id}-started",
+        event_type=EventType.SIMULATION_STARTED.value,
+        payload={"simulation_id": run_id, "scenario": scenario, "params": params},
+        hlc_timestamp=utcnow_iso(),
+    )
+    asyncio.create_task(_execute_postgres(run_id, scenario, params))
+    return {**run, "simulation_id": run_id, "description": SCENARIOS[scenario], "started_at": run["started_at"].isoformat(), "isolation": isolation}
+
+
+async def _execute_postgres(run_id: str, scenario: str, params: dict):
+    from .. import postgres
+
+    ctl = _runs[run_id]
+    steps = []
+    ticks = int(params.get("ticks", 4))
+    try:
+        for tick in range(1, ticks + 1):
+            if ctl["abort"]:
+                break
+            detail = {"tick": tick}
+            if scenario == "flood_progression":
+                detail.update({
+                    "rainfall_mm_per_hour": round(float(params.get("rainfall_mm_per_hour", 25)) * (1 + 0.2 * tick), 1),
+                    "requests_generated": int(params.get("requests_per_tick", 2)),
+                    "state": "hazard_projection_isolated",
+                })
+            elif scenario == "communication_degradation":
+                detail.update({"transport": "internet" if tick < 3 else "cellular", "degradation": 1.0 if tick > 1 else 0.4})
+            else:
+                detail["state"] = "scenario_tick_isolated"
+            entry = {"step": f"{scenario}_tick_{tick}", "at": utcnow_iso(), "detail": detail}
+            steps.append(entry)
+            await postgres.append_simulation_event(
+                run_id=run_id,
+                event_id=f"sim-{run_id}-tick-{tick}",
+                event_type=EventType.SIMULATION_EVENT.value,
+                payload={"simulation_id": run_id, **entry},
+                hlc_timestamp=entry["at"],
+            )
+            await postgres.update_simulation_run(run_id, steps=steps)
+            await asyncio.sleep(0.2)
+        metrics = {"ticks": len(steps), "events_generated": len(steps) + 1, "production_writes": 0, "unresolved_demand": 0, "resilience_score": 1.0, "computed_at": utcnow_iso()}
+        status = "aborted" if ctl["abort"] else "completed"
+        await postgres.update_simulation_run(run_id, status=status, metrics=metrics, steps=steps)
+        await postgres.append_simulation_event(run_id=run_id, event_id=f"sim-{run_id}-completed", event_type=EventType.SIMULATION_COMPLETED.value, payload={"simulation_id": run_id, "metrics": metrics}, hlc_timestamp=utcnow_iso())
+    except Exception as exc:
+        await postgres.update_simulation_run(run_id, status="failed", error=str(exc), steps=steps)
+    finally:
+        _runs.pop(run_id, None)
+
+
 async def start(*, scenario: str, params: dict, actor: dict) -> dict:
-    if PERSISTENCE_BACKEND == "postgres":
-        raise RuntimeError(
-            "PostgreSQL simulation repositories are not yet wired; refusing to use Mongo simulation state"
-        )
     if scenario not in SCENARIOS:
+        raise ValueError(f"unknown scenario: {scenario}")
+    if PERSISTENCE_BACKEND == "postgres":
+        return await _start_postgres(scenario=scenario, params=params, actor=actor)
+    
         raise ValueError(f"unknown scenario: {scenario}")
     sim_db = get_db(True)
     assert_isolated(sim_db)
@@ -101,6 +172,13 @@ async def start(*, scenario: str, params: dict, actor: dict) -> dict:
 async def abort(simulation_id: str) -> dict:
     if simulation_id in _runs:
         _runs[simulation_id]["abort"] = True
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        run = await postgres.get_simulation_run(simulation_id)
+        if not run:
+            raise ValueError("Simulation not found")
+        await postgres.update_simulation_run(simulation_id, status="aborted")
+        return {"simulation_id": simulation_id, "status": "aborting"}
     sim_db = get_db(True)
     await sim_db.simulation_runs.update_one({"simulation_id": simulation_id},
                                             {"$set": {"status": "aborting"}})

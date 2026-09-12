@@ -91,6 +91,84 @@ async def simulation_event_exists(event_id: str) -> bool:
         )
 
 
+async def create_simulation_run(*, scenario: str, params: dict[str, Any], started_by: str | None,
+                                description: str, isolation: dict[str, Any]) -> dict[str, Any]:
+    import json
+    async with connection() as conn:
+        row = await conn.fetchrow(
+            """
+            insert into simulation.simulation_run
+              (scenario, params, started_by, status, started_at, isolation)
+            values ($1, $2::jsonb, $3, 'running', now(), $4::jsonb)
+            returning id, scenario, params, started_by, status, started_at, completed_at,
+                      metrics, error, steps, isolation
+            """,
+            scenario, json.dumps(params), _uuid_or_none(started_by), json.dumps(isolation),
+        )
+    return dict(row)
+
+
+async def get_simulation_run(run_id: str) -> dict[str, Any] | None:
+    async with connection() as conn:
+        row = await conn.fetchrow(
+            "select id, scenario, params, started_by, status, started_at, completed_at, metrics, error, steps, isolation from simulation.simulation_run where id = $1",
+            UUID(run_id),
+        )
+    return dict(row) if row else None
+
+
+async def list_simulation_runs(limit: int = 50) -> list[dict[str, Any]]:
+    async with connection() as conn:
+        rows = await conn.fetch(
+            "select id, scenario, params, started_by, status, started_at, completed_at, metrics, error, isolation from simulation.simulation_run order by started_at desc limit $1",
+            limit,
+        )
+    return [dict(row) for row in rows]
+
+
+async def update_simulation_run(run_id: str, *, status: str | None = None,
+                                metrics: dict[str, Any] | None = None,
+                                error: str | None = None,
+                                steps: list[dict[str, Any]] | None = None) -> None:
+    import json
+    fields, values = [], []
+    if status is not None:
+        fields.append(f"status = ${len(values) + 1}"); values.append(status)
+    if metrics is not None:
+        fields.append(f"metrics = ${len(values) + 1}::jsonb"); values.append(json.dumps(metrics))
+    if error is not None:
+        fields.append(f"error = ${len(values) + 1}"); values.append(error[:500])
+    if steps is not None:
+        fields.append(f"steps = ${len(values) + 1}::jsonb"); values.append(json.dumps(steps))
+    if status in {"completed", "aborted", "failed"}:
+        fields.append("completed_at = now()")
+    if not fields:
+        return
+    values.append(UUID(run_id))
+    async with connection() as conn:
+        await conn.execute(f"update simulation.simulation_run set {', '.join(fields)} where id = ${len(values)}", *values)
+
+
+async def append_simulation_event(*, run_id: str, event_id: str, event_type: str,
+                                  payload: dict[str, Any], hlc_timestamp: str) -> bool:
+    import json
+    async with connection() as conn:
+        result = await conn.execute(
+            "insert into simulation.simulation_event (run_id, event_id, event_type, payload, hlc_timestamp) values ($1, $2, $3, $4::jsonb, $5) on conflict (event_id) do nothing",
+            UUID(run_id), event_id, event_type, json.dumps(payload), hlc_timestamp,
+        )
+    return result.endswith("1")
+
+
+async def list_simulation_events(run_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    async with connection() as conn:
+        rows = await conn.fetch(
+            "select id, run_id, event_id, event_type, payload, hlc_timestamp, created_at from simulation.simulation_event where run_id = $1 order by created_at desc limit $2",
+            UUID(run_id), limit,
+        )
+    return [dict(row) for row in rows]
+
+
 async def healthcheck() -> dict[str, str]:
     try:
         await check_connection()
@@ -103,4 +181,9 @@ async def close() -> None:
     await close_pool()
 
 
-__all__ = ["check_connection", "close", "connection", "healthcheck", "insert_event", "open_pool"]
+__all__ = [
+    "append_simulation_event", "check_connection", "close", "connection",
+    "create_simulation_run", "get_simulation_run", "healthcheck", "insert_event",
+    "list_simulation_events", "list_simulation_runs", "open_pool",
+    "simulation_event_exists", "update_simulation_run",
+]

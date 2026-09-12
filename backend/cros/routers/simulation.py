@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
 from ..auth import require
+from ..config import PERSISTENCE_BACKEND
 from ..db import db, sim_db
 from ..errors import ApiError, not_found
 from ..services import simulation
@@ -22,7 +23,8 @@ class StartBody(BaseModel):
 async def scenarios(user: dict = Depends(require("simulation:run"))):
     return {"scenarios": [{"key": k, "description": v}
                           for k, v in simulation.SCENARIOS.items()],
-            "isolation": {"database": sim_db.name, "production_database": db.name,
+            "isolation": {"schema": "simulation" if PERSISTENCE_BACKEND == "postgres" else sim_db.name,
+                          "production_database": "core/events" if PERSISTENCE_BACKEND == "postgres" else db.name,
                           "event_namespace": "simulation",
                           "transport_registry": "dedicated_instance"}}
 
@@ -41,6 +43,10 @@ async def start_simulation(body: StartBody, user: dict = Depends(require("simula
 
 @router.get("/simulations")
 async def list_simulations(user: dict = Depends(require("simulation:run"))):
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        docs = await postgres.list_simulation_runs()
+        return {"items": docs, "count": len(docs)}
     docs = await sim_db.simulation_runs.find({}, {"_id": 0, "steps": 0}).sort(
         "started_at", -1).to_list(50)
     return {"items": docs, "count": len(docs)}
@@ -48,6 +54,15 @@ async def list_simulations(user: dict = Depends(require("simulation:run"))):
 
 @router.get("/simulations/{simulation_id}")
 async def get_simulation(simulation_id: str, user: dict = Depends(require("simulation:run"))):
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        try:
+            doc = await postgres.get_simulation_run(simulation_id)
+        except ValueError:
+            doc = None
+        if not doc:
+            raise not_found("Simulation not found")
+        return {**doc, "simulation_id": simulation_id}
     doc = await sim_db.simulation_runs.find_one({"simulation_id": simulation_id}, {"_id": 0})
     if not doc:
         raise not_found("Simulation not found")
@@ -57,6 +72,14 @@ async def get_simulation(simulation_id: str, user: dict = Depends(require("simul
 @router.get("/simulations/{simulation_id}/events")
 async def simulation_events(simulation_id: str, limit: int = Query(200, le=1000),
                             user: dict = Depends(require("simulation:run"))):
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        try:
+            events = await postgres.list_simulation_events(simulation_id, limit)
+        except ValueError:
+            raise not_found("Simulation not found")
+        return {"simulation_id": simulation_id, "events": events, "count": len(events),
+                "namespace": "simulation", "schema": "simulation"}
     events = await sim_db.events.find({}, {"_id": 0}).sort(
         "logical_timestamp", -1).to_list(limit)
     return {"simulation_id": simulation_id, "events": events, "count": len(events),
@@ -66,6 +89,15 @@ async def simulation_events(simulation_id: str, limit: int = Query(200, le=1000)
 @router.post("/simulations/{simulation_id}/abort")
 async def abort_simulation(simulation_id: str,
                            user: dict = Depends(require("simulation:run"))):
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        try:
+            doc = await postgres.get_simulation_run(simulation_id)
+        except ValueError:
+            doc = None
+        if not doc:
+            raise not_found("Simulation not found")
+        return await simulation.abort(simulation_id)
     doc = await sim_db.simulation_runs.find_one({"simulation_id": simulation_id}, {"_id": 0})
     if not doc:
         raise not_found("Simulation not found")
@@ -75,6 +107,15 @@ async def abort_simulation(simulation_id: str,
 @router.get("/simulations/{simulation_id}/metrics")
 async def simulation_metrics(simulation_id: str,
                              user: dict = Depends(require("simulation:run"))):
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        try:
+            doc = await postgres.get_simulation_run(simulation_id)
+        except ValueError:
+            doc = None
+        if not doc:
+            raise not_found("Simulation not found")
+        return doc.get("metrics") or {}
     doc = await sim_db.simulation_runs.find_one({"simulation_id": simulation_id}, {"_id": 0})
     if not doc:
         raise not_found("Simulation not found")
