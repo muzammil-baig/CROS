@@ -111,6 +111,7 @@ async def startup():
     from cros.seed import credentials_markdown, ensure_gateway_identities, seed
     if PERSISTENCE_BACKEND == "postgres":
         result = await seed()
+        await ensure_gateway_identities()
         logger.info("PostgreSQL seed: %s", result)
         logger.info("CROS ready: %d event handlers registered", bus.handler_count())
         return

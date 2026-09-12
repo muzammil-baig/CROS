@@ -192,8 +192,10 @@ async def create_hazard(body: CreateHazardBody,
     result = await emit_client_event(event_type=EventType.HAZARD_REPORTED.value,
                                      payload=payload, user=user, priority="high")
     doc = await db.hazards.find_one({"hazard_id": hazard_id}, {"_id": 0})
-    return {"hazard": doc, "hazard_module": body.hazard_type if body.hazard_type
+    return {"hazard": doc, "hazard_id": hazard_id,
+            "hazard_module": body.hazard_type if body.hazard_type
             in registered_types() else "generic", "severity": (doc or {}).get("severity", payload.get("severity")),
+            "road_blocked": (doc or {}).get("road_blocked", payload.get("road_blocked", False)),
             "event_id": result.get("event_id")}
 
 

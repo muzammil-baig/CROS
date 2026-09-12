@@ -136,7 +136,7 @@ class EdgeNode:
             "SELECT o.*, e.envelope FROM outbound_queue o JOIN local_events e "
             "ON e.event_id=o.event_id WHERE o.state IN ('QUEUED','FAILED') "
             "ORDER BY CASE o.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
-            "WHEN 'normal' THEN 2 ELSE 3 END, o.queued_at LIMIT ?", (limit,)).fetchall()
+                            "WHEN 'normal' THEN 2 ELSE 3 END, o.queued_at DESC LIMIT ?", (limit,)).fetchall()
         return [{**dict(r), "envelope": json.loads(r["envelope"])} for r in rows]
 
     def mark_synced(self, event_ids: list[str], state: str = "DELIVERED",

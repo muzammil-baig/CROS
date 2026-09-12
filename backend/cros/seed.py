@@ -383,10 +383,19 @@ async def ensure_gateway_identities():
     gateways = await db.gateways.find({}, {"_id": 0, "gateway_id": 1}).to_list(200)
     for g in gateways:
         gid = g["gateway_id"]
-        device = await db.devices.find_one({"device_id": gid})
-        if device and edge_keystore.has_key(gid):
+        if PERSISTENCE_BACKEND == "postgres":
+            from . import postgres
+            device = await postgres.find_device(gid)
+        else:
+            device = await db.devices.find_one({"device_id": gid})
+        if device and edge_keystore.get_private_key(gid):
             continue
         pub = edge_keystore.provision(gid)
+        if PERSISTENCE_BACKEND == "postgres":
+            from . import postgres
+            await postgres.upsert_device(device_id=gid, owner_user_id=None,
+                                         public_key=pub, signing_mode="server_keystore",
+                                         trust_level="trusted")
         await bus.emit_system(EventType.DEVICE_REGISTERED.value, {
             "device_id": gid, "public_key": pub, "owner_user_id": None,
             "device_type": "field_gateway", "signing_mode": "server_keystore",
