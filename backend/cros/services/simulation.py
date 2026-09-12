@@ -137,8 +137,6 @@ async def start(*, scenario: str, params: dict, actor: dict) -> dict:
         raise ValueError(f"unknown scenario: {scenario}")
     if PERSISTENCE_BACKEND == "postgres":
         return await _start_postgres(scenario=scenario, params=params, actor=actor)
-    
-        raise ValueError(f"unknown scenario: {scenario}")
     sim_db = get_db(True)
     assert_isolated(sim_db)
     prod_db = get_db(False)

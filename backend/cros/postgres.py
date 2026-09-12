@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
-from uuid import NAMESPACE_URL, UUID, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5, uuid4
 
 import asyncpg
 
@@ -98,12 +98,12 @@ async def create_simulation_run(*, scenario: str, params: dict[str, Any], starte
         row = await conn.fetchrow(
             """
             insert into simulation.simulation_run
-              (scenario, params, started_by, status, started_at, isolation)
-            values ($1, $2::jsonb, $3, 'running', now(), $4::jsonb)
-            returning id, scenario, params, started_by, status, started_at, completed_at,
+              (simulation_id, scenario, params, started_by, status, started_at, isolation)
+            values ($1, $2, $3::jsonb, $4, 'running', now(), $5::jsonb)
+            returning id, simulation_id, scenario, params, started_by, status, started_at, completed_at,
                       metrics, error, steps, isolation
             """,
-            scenario, json.dumps(params), _uuid_or_none(started_by), json.dumps(isolation),
+            uuid4(), scenario, json.dumps(params), _uuid_or_none(started_by), json.dumps(isolation),
         )
     return dict(row)
 
