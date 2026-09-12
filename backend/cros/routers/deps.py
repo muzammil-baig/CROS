@@ -9,6 +9,7 @@ from fastapi import Header
 
 from .. import edge_keystore
 from ..auth import has_permission
+from ..config import PERSISTENCE_BACKEND
 from ..db import db as prod_db
 from ..errors import ApiError
 from ..events import bus
@@ -19,16 +20,26 @@ from ..ulid import new_ulid
 async def default_device(user: dict) -> str:
     """Every actor has a registered signing device; provision on first use."""
     device_id = f"DEV-{user['user_id']}"
-    doc = await prod_db.devices.find_one({"device_id": device_id})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        doc = await postgres.find_device(device_id)
+    else:
+        doc = await prod_db.devices.find_one({"device_id": device_id})
     if not doc or not edge_keystore.has_key(device_id):
         pub = edge_keystore.provision(device_id)
         from ..constants import EventType
-        await bus.emit_system(EventType.DEVICE_REGISTERED.value,
-                              {"device_id": device_id, "public_key": pub,
-                               "owner_user_id": user["user_id"],
-                               "device_type": "web_client",
-                               "signing_mode": "server_keystore",
-                               "trust_level": "provisional"})
+        if PERSISTENCE_BACKEND == "postgres":
+            from .. import postgres
+            await postgres.upsert_device(
+                device_id=device_id, owner_user_id=user["user_id"], public_key=pub,
+                signing_mode="server_keystore", trust_level="provisional")
+        else:
+            await bus.emit_system(EventType.DEVICE_REGISTERED.value,
+                                  {"device_id": device_id, "public_key": pub,
+                                   "owner_user_id": user["user_id"],
+                                   "device_type": "web_client",
+                                   "signing_mode": "server_keystore",
+                                   "trust_level": "provisional"})
     elif doc.get("revoked"):
         raise ApiError(403, "DEVICE_REVOKED", "Signing device credential revoked")
     return device_id

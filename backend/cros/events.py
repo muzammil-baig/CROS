@@ -15,7 +15,7 @@ from typing import Awaitable, Callable
 
 from pydantic import ValidationError
 
-from . import crypto, edge_keystore
+from . import crypto, edge_keystore, postgres
 from .constants import TRUSTED_ONLY_EVENTS, EventType, Priority
 from .db import get_db, db as prod_db
 from .hlc import HybridLogicalClock
@@ -131,8 +131,9 @@ class EventBus:
                 verified, reason = await _verify_device_signature(env)
                 if not verified:
                     incr("events.signature_failed")
-                    await db.quarantine_events.insert_one(
-                        {"envelope": env, "reason": reason, "at": utcnow_iso()})
+                    if PERSISTENCE_BACKEND != "postgres":
+                        await db.quarantine_events.insert_one(
+                            {"envelope": env, "reason": reason, "at": utcnow_iso()})
                     if env["event_type"] != EventType.SIGNATURE_VERIFICATION_FAILED.value:
                         await self.emit_system(
                             EventType.SIGNATURE_VERIFICATION_FAILED.value,
@@ -237,13 +238,13 @@ _cloud_pub_cache: dict[str, str] = {}
 
 async def _cloud_public_key() -> str:
     if "key" not in _cloud_pub_cache:
-        doc = await prod_db.devices.find_one({"device_id": CLOUD_DEVICE_ID}, {"_id": 0})
+        doc = await postgres.find_device(CLOUD_DEVICE_ID) if PERSISTENCE_BACKEND == "postgres" else await prod_db.devices.find_one({"device_id": CLOUD_DEVICE_ID}, {"_id": 0})
         _cloud_pub_cache["key"] = doc["public_key"] if doc else ""
     return _cloud_pub_cache["key"]
 
 
 async def _verify_device_signature(env: dict):
-    device = await prod_db.devices.find_one({"device_id": env["origin_device_id"]}, {"_id": 0})
+    device = await postgres.find_device(env["origin_device_id"]) if PERSISTENCE_BACKEND == "postgres" else await prod_db.devices.find_one({"device_id": env["origin_device_id"]}, {"_id": 0})
     if not device:
         return False, "UNKNOWN_DEVICE"
     if device.get("revoked"):
@@ -258,18 +259,21 @@ async def _verify_device_signature(env: dict):
 
 async def ensure_cloud_identity():
     """Provision the cloud node's signing identity (private key on filesystem only)."""
-    existing = await prod_db.devices.find_one({"device_id": CLOUD_DEVICE_ID})
+    existing = await postgres.find_device(CLOUD_DEVICE_ID) if PERSISTENCE_BACKEND == "postgres" else await prod_db.devices.find_one({"device_id": CLOUD_DEVICE_ID})
     if existing and edge_keystore.has_key(CLOUD_DEVICE_ID):
         _cloud_pub_cache["key"] = existing["public_key"]
         return
     pub = edge_keystore.provision(CLOUD_DEVICE_ID)
-    await prod_db.devices.update_one(
-        {"device_id": CLOUD_DEVICE_ID},
-        {"$set": {"device_id": CLOUD_DEVICE_ID, "public_key": pub,
-                  "device_type": "cloud_service", "trust_level": "trusted",
-                  "signing_mode": "server_keystore", "revoked": False,
-                  "owner_user_id": None, "registered_at": utcnow_iso()}},
-        upsert=True)
+    if PERSISTENCE_BACKEND == "postgres":
+        logger.info("PostgreSQL mode: cloud identity is verified at the event trust boundary")
+    else:
+        await prod_db.devices.update_one(
+            {"device_id": CLOUD_DEVICE_ID},
+            {"$set": {"device_id": CLOUD_DEVICE_ID, "public_key": pub,
+                      "device_type": "cloud_service", "trust_level": "trusted",
+                      "signing_mode": "server_keystore", "revoked": False,
+                      "owner_user_id": None, "registered_at": utcnow_iso()}},
+            upsert=True)
     _cloud_pub_cache["key"] = pub
 
 

@@ -173,6 +173,38 @@ async def list_simulation_events(run_id: str, limit: int = 200) -> list[dict[str
     return [dict(row) for row in rows]
 
 
+async def find_user_by_id(user_id: str) -> dict[str, Any] | None:
+    async with connection() as conn:
+        row = await conn.fetchrow(
+            "select id, organization_id, display_name, contact_info, is_active, credential_hash from core.app_user where id = $1",
+            UUID(user_id),
+        )
+    return dict(row) if row else None
+
+
+async def find_device(device_id: str) -> dict[str, Any] | None:
+    async with connection() as conn:
+        row = await conn.fetchrow(
+            "select id, device_id, owner_user_id, public_key, signing_mode, trust_level, revoked from core.device where device_id = $1",
+            device_id,
+        )
+    return dict(row) if row else None
+
+
+async def upsert_device(*, device_id: str, owner_user_id: str, public_key: str,
+                        signing_mode: str, trust_level: str) -> None:
+    async with connection() as conn:
+        await conn.execute(
+            """
+            insert into core.device (device_id, owner_user_id, public_key, signing_mode, trust_level)
+            values ($1, $2, $3, $4, $5)
+            on conflict (device_id) do update set public_key = excluded.public_key,
+              signing_mode = excluded.signing_mode, trust_level = excluded.trust_level
+            """,
+            device_id, UUID(owner_user_id), public_key, signing_mode, trust_level,
+        )
+
+
 async def healthcheck() -> dict[str, str]:
     try:
         await check_connection()
