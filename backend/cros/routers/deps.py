@@ -85,7 +85,11 @@ async def sign_if_delegated(envelope: dict) -> dict:
     if envelope.get("signature"):
         return envelope
     device_id = envelope.get("origin_device_id")
-    device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        device = await postgres.find_device(device_id)
+    else:
+        device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
     if device and not device.get("revoked") and \
             device.get("signing_mode") == "server_keystore":
         envelope["signature"] = edge_keystore.sign_envelope(device_id, envelope)
@@ -101,7 +105,11 @@ async def publish_offline_envelope(envelope: dict, *, simulation: bool = False) 
     """
     envelope = {k: v for k, v in envelope.items() if k in ENVELOPE_FIELDS}
     device_id = envelope.get("origin_device_id")
-    device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        device = await postgres.find_device(device_id)
+    else:
+        device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
     if device and device.get("revoked"):
         raise ApiError(403, "DEVICE_REVOKED", "Signing device credential revoked")
     if not envelope.get("signature") and device and \
