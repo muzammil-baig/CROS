@@ -87,6 +87,13 @@ class _PostgresCollection:
         await postgres.delete_entity(self.collection, str(current.get("_id") or current.get("id")))
         return _Result(deleted_count=1)
 
+    async def delete_many(self, query=None):
+        from . import postgres
+        rows = await self._find_many(query or {}, limit=100000)
+        for row in rows:
+            await postgres.delete_entity(self.collection, str(row.get("_id") or row.get("id")))
+        return _Result(deleted_count=len(rows))
+
     async def count_documents(self, query=None):
         from . import postgres
         return await postgres.count_entities(self.collection, query or {})

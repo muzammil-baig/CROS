@@ -196,6 +196,21 @@ async def _entity_matches(payload: dict[str, Any], query: dict[str, Any]) -> boo
 async def list_entities(collection: str, *, query: dict[str, Any], limit: int = 1000,
                         sort: tuple[str, int] | None = None) -> list[dict[str, Any]]:
     async with connection() as conn:
+        if collection == "events":
+            if query.get("event_id"):
+                rows = await conn.fetch("select event_id, event_type, schema_version, aggregate_type, aggregate_id, correlation_id, causal_parent_ids, hlc_timestamp, wall_clock_timestamp, origin_device_id, origin_actor_id, payload, signature, received_at from events.event_log where event_id = $1 limit $2", query["event_id"], limit)
+            else:
+                rows = await conn.fetch("select event_id, event_type, schema_version, aggregate_type, aggregate_id, correlation_id, causal_parent_ids, hlc_timestamp, wall_clock_timestamp, origin_device_id, origin_actor_id, payload, signature, received_at from events.event_log order by received_at desc limit $1", limit)
+            import json
+            result = []
+            for row in rows:
+                item = dict(row)
+                for key in ("causal_parent_ids", "payload"):
+                    if isinstance(item.get(key), str):
+                        item[key] = json.loads(item[key])
+                item["_id"] = item["event_id"]
+                result.append(item)
+            return result
         rows = await conn.fetch(
             "select entity_id, payload, created_at, updated_at from operational.entity where collection = $1 order by updated_at desc limit $2",
             collection, limit,
