@@ -60,6 +60,9 @@ async def check_connection() -> bool:
 async def insert_event(envelope: dict[str, Any]) -> bool:
     """Insert an event once; return False when event_id already exists."""
     async with connection() as conn:
+        actor_id = _uuid_or_none(envelope.get("origin_actor_id"))
+        if actor_id and not await conn.fetchval("select exists(select 1 from core.app_user where id = $1)", actor_id):
+            actor_id = None
         result = await conn.execute(
             """
             insert into events.event_log
@@ -75,8 +78,8 @@ async def insert_event(envelope: dict[str, Any]) -> bool:
             __import__("json").dumps(envelope.get("causal_parent_ids", [])),
             envelope["logical_timestamp"], envelope["wall_clock_timestamp"],
             None if envelope.get("origin_device_id") == "cloud-service-node"
-            else _uuid_or_none(envelope.get("origin_device_id")),
-            _uuid_or_none(envelope.get("origin_actor_id")),
+            else _device_uuid(envelope.get("origin_device_id")) if envelope.get("origin_device_id") else None,
+            actor_id,
             __import__("json").dumps(envelope["payload"]), envelope.get("signature"),
             envelope.get("received_at") or datetime.now(timezone.utc),
         )
@@ -197,9 +200,11 @@ async def list_entities(collection: str, *, query: dict[str, Any], limit: int = 
             "select entity_id, payload, created_at, updated_at from operational.entity where collection = $1 order by updated_at desc limit $2",
             collection, limit,
         )
+    import json
     result = []
     for row in rows:
-        payload = dict(row["payload"] or {})
+        raw_payload = row["payload"] or {}
+        payload = json.loads(raw_payload) if isinstance(raw_payload, str) else dict(raw_payload)
         payload.setdefault("_id", row["entity_id"])
         if await _entity_matches(payload, query):
             result.append(payload)
@@ -229,7 +234,10 @@ async def count_entities(collection: str, query: dict[str, Any]) -> int:
 
 
 def _user_document(row: dict[str, Any]) -> dict[str, Any]:
+    import json
     contact = row.get("contact_info") or {}
+    if isinstance(contact, str):
+        contact = json.loads(contact)
     return {
         "user_id": str(row["id"]),
         "email": contact.get("email", ""),
@@ -250,6 +258,40 @@ async def find_user_by_id(user_id: str) -> dict[str, Any] | None:
     return _user_document(dict(row)) if row else None
 
 
+async def upsert_organization(*, org_id: str, name: str, org_type: str) -> None:
+    async with connection() as conn:
+        existing_id = await conn.fetchval("select id from core.organization where name = $1", name)
+        await conn.execute(
+            "insert into core.organization (id, name, org_type, is_active, created_at) values ($1, $2, $3, true, now()) on conflict (id) do update set name = excluded.name, org_type = excluded.org_type, is_active = true",
+            existing_id or uuid5(NAMESPACE_URL, f"cros-org:{org_id}"), name, org_type,
+        )
+
+
+async def upsert_user(*, user_id: str, email: str, name: str, role: str,
+                      org_id: str | None, password_hash: str) -> None:
+    import json
+    async with connection() as conn:
+        organization_id = None
+        if org_id:
+            organization_id = await conn.fetchval("select id from core.organization where name = $1", {
+                "ORG-NDRA": "National Disaster Response Agency",
+                "ORG-CITYFIRE": "Metro City Fire & Rescue",
+                "ORG-MEDNET": "Regional Health Network",
+            }.get(org_id, org_id))
+        await conn.execute(
+            """
+            insert into core.app_user (id, organization_id, display_name, contact_info,
+                                       is_active, credential_hash, created_at, updated_at)
+            values ($1, $2, $3, $4::jsonb, true, $5, now(), now())
+            on conflict (id) do update set organization_id = excluded.organization_id,
+              display_name = excluded.display_name, contact_info = excluded.contact_info,
+              is_active = true, credential_hash = excluded.credential_hash, updated_at = now()
+            """,
+            _uuid_or_none(user_id) or uuid5(NAMESPACE_URL, f"cros-user:{email}"),
+            organization_id, name, json.dumps({"email": email, "role": role}), password_hash,
+        )
+
+
 async def find_user_by_email(email: str) -> dict[str, Any] | None:
     async with connection() as conn:
         row = await conn.fetchrow(
@@ -259,26 +301,51 @@ async def find_user_by_email(email: str) -> dict[str, Any] | None:
     return _user_document(dict(row)) if row else None
 
 
+def _device_uuid(device_id: str) -> UUID:
+    return uuid5(NAMESPACE_URL, f"cros-device:{device_id}")
+
+
 async def find_device(device_id: str) -> dict[str, Any] | None:
     async with connection() as conn:
         row = await conn.fetchrow(
-            "select id, device_id, owner_user_id, public_key, signing_mode, trust_level, revoked from core.device where device_id = $1",
-            device_id,
+            "select id, owner_user_id, public_key, device_class, trust_score, revoked_at from core.device where id = $1",
+            _device_uuid(device_id),
         )
-    return dict(row) if row else None
+    if not row:
+        return None
+    result = dict(row)
+    result["device_id"] = device_id
+    result["signing_mode"] = "server_keystore"
+    result["trust_level"] = "trusted" if float(result.get("trust_score") or 0) >= 0.8 else "provisional"
+    result["revoked"] = result.get("revoked_at") is not None
+    return result
 
 
-async def upsert_device(*, device_id: str, owner_user_id: str, public_key: str,
-                        signing_mode: str, trust_level: str) -> None:
+async def revoke_device(device_id: str, reason: str | None) -> None:
     async with connection() as conn:
         await conn.execute(
+            "update core.device set revoked_at = now(), revocation_reason = $2, updated_at = now() where id = $1",
+            _device_uuid(device_id), reason,
+        )
+
+
+async def upsert_device(*, device_id: str, owner_user_id: str | None, public_key: str,
+                        signing_mode: str, trust_level: str) -> None:
+    async with connection() as conn:
+        owner_uuid = _uuid_or_none(owner_user_id)
+        if owner_uuid and not await conn.fetchval("select exists(select 1 from core.app_user where id = $1)", owner_uuid):
+            owner_uuid = None
+        await conn.execute(
             """
-            insert into core.device (device_id, owner_user_id, public_key, signing_mode, trust_level)
-            values ($1, $2, $3, $4, $5)
-            on conflict (device_id) do update set public_key = excluded.public_key,
-              signing_mode = excluded.signing_mode, trust_level = excluded.trust_level
+            insert into core.device (id, owner_user_id, public_key, device_class, provisioned_at,
+                                     trust_score, created_at, updated_at)
+            values ($1, $2, $3, $4, now(), $5, now(), now())
+            on conflict (id) do update set owner_user_id = excluded.owner_user_id,
+              public_key = excluded.public_key, device_class = excluded.device_class,
+              trust_score = excluded.trust_score, updated_at = now()
             """,
-            device_id, UUID(owner_user_id), public_key, signing_mode, trust_level,
+            _device_uuid(device_id), owner_uuid,
+            public_key, "command_center", 1.0 if trust_level == "trusted" else 0.5,
         )
 
 

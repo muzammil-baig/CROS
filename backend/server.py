@@ -107,11 +107,13 @@ async def validation_handler(request: Request, exc: RequestValidationError):
 @app.on_event("startup")
 async def startup():
     await ensure_indexes()
-    if PERSISTENCE_BACKEND == "postgres":
-        logger.info("PostgreSQL mode: Mongo seed/bootstrap paths are disabled until repository migration completes")
-        return
     await ensure_cloud_identity()
     from cros.seed import credentials_markdown, ensure_gateway_identities, seed
+    if PERSISTENCE_BACKEND == "postgres":
+        result = await seed()
+        logger.info("PostgreSQL seed: %s", result)
+        logger.info("CROS ready: %d event handlers registered", bus.handler_count())
+        return
     result = await seed()
     await ensure_gateway_identities()
     logger.info("seed: %s", result)

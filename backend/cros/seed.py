@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import edge_keystore
 from .auth import hash_password
-from .config import ADMIN_EMAIL, ADMIN_PASSWORD, SEED_PASSWORD
+from .config import ADMIN_EMAIL, ADMIN_PASSWORD, PERSISTENCE_BACKEND, SEED_PASSWORD
 from .constants import EventType, Priority, Role
 from .db import db
 from .events import bus
@@ -53,23 +53,39 @@ def box(lon, lat, w, h):
 
 
 async def _user(email, name, role, org_id, password):
-    existing = await db.users.find_one({"email": email})
-    user_id = existing["user_id"] if existing else f"U-{new_ulid()}"
-    await db.users.update_one(
-        {"email": email},
-        {"$set": {"user_id": user_id, "email": email, "name": name, "role": role.value,
-                  "org_id": org_id, "disabled": False,
-                  "password_hash": hash_password(password)},
-         "$setOnInsert": {"created_at": utcnow_iso()}}, upsert=True)
+    user_id = f"U-{new_ulid()}"
+    password_hash = hash_password(password)
+    if PERSISTENCE_BACKEND == "postgres":
+        from . import postgres
+        existing = await postgres.find_user_by_email(email)
+        user_id = existing["user_id"] if existing else user_id
+        await postgres.upsert_user(user_id=user_id, email=email, name=name, role=role.value,
+                                   org_id=org_id, password_hash=password_hash)
+    else:
+        existing = await db.users.find_one({"email": email})
+        user_id = existing["user_id"] if existing else user_id
+        await db.users.update_one(
+            {"email": email},
+            {"$set": {"user_id": user_id, "email": email, "name": name, "role": role.value,
+                      "org_id": org_id, "disabled": False,
+                      "password_hash": password_hash},
+             "$setOnInsert": {"created_at": utcnow_iso()}}, upsert=True)
     device_id = f"DEV-{user_id}"
-    if not edge_keystore.has_key(device_id) or \
-            not await db.devices.find_one({"device_id": device_id}):
+    if PERSISTENCE_BACKEND == "postgres":
+        from . import postgres
+        existing_device = await postgres.find_device(device_id)
+    else:
+        existing_device = await db.devices.find_one({"device_id": device_id})
+    if not edge_keystore.has_key(device_id) or not existing_device:
         pub = edge_keystore.provision(device_id)
-        await bus.emit_system(EventType.DEVICE_REGISTERED.value,
-                              {"device_id": device_id, "public_key": pub,
-                               "owner_user_id": user_id, "device_type": "seed_device",
-                               "signing_mode": "server_keystore",
-                               "trust_level": "trusted"})
+        if PERSISTENCE_BACKEND == "postgres":
+            await postgres.upsert_device(device_id=device_id, owner_user_id=user_id, public_key=pub,
+                                         signing_mode="server_keystore", trust_level="trusted")
+        else:
+            await bus.emit_system(EventType.DEVICE_REGISTERED.value,
+                                  {"device_id": device_id, "public_key": pub,
+                                   "owner_user_id": user_id, "device_type": "seed_device",
+                                   "signing_mode": "server_keystore", "trust_level": "trusted"})
     return user_id, device_id
 
 
@@ -78,8 +94,13 @@ async def seed() -> dict:
         return {"seeded": False, "reason": "already_seeded"}
 
     for org in (ORG, ORG2, ORG3):
-        await db.organizations.update_one({"org_id": org["org_id"]},
-                                         {"$set": org}, upsert=True)
+        if PERSISTENCE_BACKEND == "postgres":
+            from . import postgres
+            org_type = {"responder": "fire_rescue"}.get(org["kind"], org["kind"])
+            await postgres.upsert_organization(org_id=org["org_id"], name=org["name"], org_type=org_type)
+        else:
+            await db.organizations.update_one({"org_id": org["org_id"]},
+                                             {"$set": org}, upsert=True)
 
     admin_id, admin_dev = await _user(ADMIN_EMAIL, "Muzammil Baig",
                                       Role.SYSTEM_ADMINISTRATOR, "ORG-NDRA", ADMIN_PASSWORD)

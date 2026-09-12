@@ -64,6 +64,8 @@ class _PostgresCollection:
         if current is None and not upsert:
             return _Result()
         doc = current or dict(query)
+        if "$setOnInsert" in update and current is None:
+            doc.update(update["$setOnInsert"])
         if "$set" in update:
             doc.update(update["$set"])
         if "$inc" in update:

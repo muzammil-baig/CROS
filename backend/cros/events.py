@@ -183,8 +183,8 @@ class EventBus:
 
             incr("events.persisted")
             incr(f"events.type.{env['event_type']}")
+            await self._apply(db, _clean(env), simulation)
             if PERSISTENCE_BACKEND != "postgres":
-                await self._apply(db, _clean(env), simulation)
                 await db.events.update_one({"event_id": env["event_id"]},
                                            {"$set": {"applied": True}})
             await manager.broadcast(_topic(env["event_type"]), _clean(env))
