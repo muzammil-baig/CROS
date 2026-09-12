@@ -173,6 +173,61 @@ async def list_simulation_events(run_id: str, limit: int = 200) -> list[dict[str
     return [dict(row) for row in rows]
 
 
+async def _entity_matches(payload: dict[str, Any], query: dict[str, Any]) -> bool:
+    for key, expected in query.items():
+        if key.startswith("$"):
+            continue
+        actual = payload.get(key)
+        if isinstance(expected, dict):
+            if "$in" in expected and actual not in expected["$in"]:
+                return False
+            if "$ne" in expected and actual == expected["$ne"]:
+                return False
+            if "$exists" in expected and (key in payload) != expected["$exists"]:
+                return False
+        elif actual != expected:
+            return False
+    return True
+
+
+async def list_entities(collection: str, *, query: dict[str, Any], limit: int = 1000,
+                        sort: tuple[str, int] | None = None) -> list[dict[str, Any]]:
+    async with connection() as conn:
+        rows = await conn.fetch(
+            "select entity_id, payload, created_at, updated_at from operational.entity where collection = $1 order by updated_at desc limit $2",
+            collection, limit,
+        )
+    result = []
+    for row in rows:
+        payload = dict(row["payload"] or {})
+        payload.setdefault("_id", row["entity_id"])
+        if await _entity_matches(payload, query):
+            result.append(payload)
+    if sort:
+        field, direction = sort
+        result.sort(key=lambda item: item.get(field) or "", reverse=direction < 0)
+    return result[:limit]
+
+
+async def upsert_entity(collection: str, entity_id: str, payload: dict[str, Any]) -> None:
+    import json
+    async with connection() as conn:
+        await conn.execute(
+            "insert into operational.entity (collection, entity_id, payload) values ($1, $2, $3::jsonb) on conflict (collection, entity_id) do update set payload = excluded.payload, updated_at = now()",
+            collection, entity_id, json.dumps(payload, default=str),
+        )
+
+
+async def delete_entity(collection: str, entity_id: str) -> None:
+    async with connection() as conn:
+        await conn.execute("delete from operational.entity where collection = $1 and entity_id = $2", collection, entity_id)
+
+
+async def count_entities(collection: str, query: dict[str, Any]) -> int:
+    rows = await list_entities(collection, query=query, limit=100000)
+    return len(rows)
+
+
 async def find_user_by_id(user_id: str) -> dict[str, Any] | None:
     async with connection() as conn:
         row = await conn.fetchrow(
@@ -219,7 +274,8 @@ async def close() -> None:
 
 __all__ = [
     "append_simulation_event", "check_connection", "close", "connection",
-    "create_simulation_run", "get_simulation_run", "healthcheck", "insert_event",
-    "list_simulation_events", "list_simulation_runs", "open_pool",
-    "simulation_event_exists", "update_simulation_run",
+    "count_entities", "create_simulation_run", "delete_entity", "find_user_by_id",
+    "get_simulation_run", "healthcheck", "insert_event",
+    "list_entities", "list_simulation_events", "list_simulation_runs", "open_pool",
+    "simulation_event_exists", "update_simulation_run", "upsert_entity",
 ]
