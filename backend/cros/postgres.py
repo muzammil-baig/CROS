@@ -203,6 +203,8 @@ async def _entity_matches(payload: dict[str, Any], query: dict[str, Any]) -> boo
         if isinstance(expected, dict):
             if "$in" in expected and not any(_matches_value(actual, item) for item in expected["$in"]):
                 return False
+            if "$nin" in expected and any(_matches_value(actual, item) for item in expected["$nin"]):
+                return False
             if "$ne" in expected and _matches_value(actual, expected["$ne"]):
                 return False
             if "$exists" in expected and exists != expected["$exists"]:
@@ -216,10 +218,10 @@ async def list_entities(collection: str, *, query: dict[str, Any], limit: int = 
                         sort: tuple[str, int] | None = None) -> list[dict[str, Any]]:
     async with connection() as conn:
         if collection == "events":
-            if query.get("event_id"):
-                rows = await conn.fetch("select event_id, event_type, schema_version, aggregate_type, aggregate_id, correlation_id, causal_parent_ids, hlc_timestamp, wall_clock_timestamp, origin_device_id, origin_actor_id, payload, signature, received_at from events.event_log where event_id = $1 limit $2", query["event_id"], limit)
-            else:
-                rows = await conn.fetch("select event_id, event_type, schema_version, aggregate_type, aggregate_id, correlation_id, causal_parent_ids, hlc_timestamp, wall_clock_timestamp, origin_device_id, origin_actor_id, payload, signature, received_at from events.event_log order by received_at desc limit $1", limit)
+            rows = await conn.fetch(
+                "select event_id, event_type, schema_version, aggregate_type, aggregate_id, correlation_id, causal_parent_ids, hlc_timestamp, wall_clock_timestamp, origin_device_id, origin_actor_id, payload, signature, received_at from events.event_log order by received_at desc limit $1",
+                max(limit, 100000) if query else limit,
+            )
             import json
             result = []
             for row in rows:
@@ -228,8 +230,12 @@ async def list_entities(collection: str, *, query: dict[str, Any], limit: int = 
                     if isinstance(item.get(key), str):
                         item[key] = json.loads(item[key])
                 item["_id"] = item["event_id"]
-                result.append(item)
-            return result
+                item["logical_timestamp"] = item.get("hlc_timestamp")
+                item["priority"] = (item.get("payload") or {}).get("priority", "normal")
+                item["applied"] = True
+                if await _entity_matches(item, query):
+                    result.append(item)
+            return result[:limit]
         rows = await conn.fetch(
             "select entity_id, payload, created_at, updated_at from operational.entity where collection = $1 order by updated_at desc limit $2",
             collection, max(limit, 100000) if query else limit,
@@ -243,8 +249,12 @@ async def list_entities(collection: str, *, query: dict[str, Any], limit: int = 
         if await _entity_matches(payload, query):
             result.append(payload)
     if sort:
-        field, direction = sort
-        result.sort(key=lambda item: item.get(field) or "", reverse=direction < 0)
+        sort_fields = sort if isinstance(sort, list) else [sort]
+        for field, direction in reversed(sort_fields):
+            result.sort(key=lambda item: _nested_value(item, field)[1] or 0
+                        if isinstance(_nested_value(item, field)[1], (int, float))
+                        else str(_nested_value(item, field)[1] or ""),
+                        reverse=direction < 0)
     return result[:limit]
 
 

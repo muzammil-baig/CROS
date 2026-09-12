@@ -150,12 +150,13 @@ async def get_current_user(
         from . import postgres
         user = await postgres.find_user_by_id(payload["sub"])
         if user:
-            contact = user.get("contact_info") or {}
             user = {
-                "user_id": str(user["id"]), "email": contact.get("email", payload.get("email", "")),
-                "role": contact.get("role", payload.get("role", "citizen")),
-                "org_id": str(user["organization_id"]) if user.get("organization_id") else payload.get("org_id"),
-                "disabled": not user.get("is_active", True),
+                "user_id": user["user_id"],
+                "email": user.get("email", payload.get("email", "")),
+                "name": user.get("name"),
+                "role": user.get("role", payload.get("role", "citizen")),
+                "org_id": user.get("org_id") or payload.get("org_id"),
+                "disabled": user.get("disabled", False),
             }
     else:
         user = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0, "password_hash": 0})

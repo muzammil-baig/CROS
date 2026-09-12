@@ -193,7 +193,8 @@ async def create_hazard(body: CreateHazardBody,
                                      payload=payload, user=user, priority="high")
     doc = await db.hazards.find_one({"hazard_id": hazard_id}, {"_id": 0})
     return {"hazard": doc, "hazard_module": body.hazard_type if body.hazard_type
-            in registered_types() else "generic", "event_id": result.get("event_id")}
+            in registered_types() else "generic", "severity": (doc or {}).get("severity", payload.get("severity")),
+            "event_id": result.get("event_id")}
 
 
 @router.get("/hazards")

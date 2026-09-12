@@ -6,6 +6,7 @@ database. Used by the edge/gateway runtime and by the browser fallback signer
 when WebCrypto Ed25519 is unavailable (labelled SIMULATED_SIGNER in the UI).
 """
 import json
+import os
 from typing import Optional
 
 from .config import EDGE_KEYSTORE_DIR
@@ -21,7 +22,10 @@ def _path(device_id: str):
 
 def store_private_key(device_id: str, private_key_b64: str):
     p = _path(device_id)
-    p.write_text(json.dumps({"device_id": device_id, "private_key": private_key_b64}))
+    temporary = p.with_suffix(f".{os.getpid()}.tmp")
+    temporary.write_text(json.dumps({"device_id": device_id, "private_key": private_key_b64}))
+    temporary.chmod(0o600)
+    os.replace(temporary, p)
     p.chmod(0o600)
 
 
@@ -33,7 +37,10 @@ def get_private_key(device_id: str) -> Optional[str]:
     p = _path(device_id)
     if not p.exists():
         return None
-    return json.loads(p.read_text())["private_key"]
+    try:
+        return json.loads(p.read_text())["private_key"]
+    except (json.JSONDecodeError, KeyError, OSError):
+        return None
 
 
 def provision(device_id: str) -> str:

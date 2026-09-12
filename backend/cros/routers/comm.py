@@ -357,7 +357,8 @@ async def sync_device(body: SyncBody, user: dict = Depends(require("sync:exchang
         except ApiError as exc:
             r = {"status": "rejected", "reason": exc.code}
         ingested.append({"event_id": env.get("event_id"), "status": r["status"],
-                         "reason": r.get("reason")})
+                         "reason": r.get("reason"),
+                         "signature_verified": (r.get("event") or {}).get("signature_verified")})
     result = await sync_svc.exchange(
         db, device_id=body.device_id, actor_id=user["user_id"],
         known_event_ids=body.known_event_ids, incoming_events=[],

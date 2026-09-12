@@ -25,7 +25,7 @@ async def default_device(user: dict) -> str:
         doc = await postgres.find_device(device_id)
     else:
         doc = await prod_db.devices.find_one({"device_id": device_id})
-    if not doc or not edge_keystore.has_key(device_id):
+    if not doc or not edge_keystore.get_private_key(device_id):
         pub = edge_keystore.provision(device_id)
         from ..constants import EventType
         if PERSISTENCE_BACKEND == "postgres":
@@ -53,7 +53,7 @@ async def emit_client_event(*, event_type: str, payload: dict, user: dict,
                             simulation: bool = False) -> dict:
     """Create a signed, idempotent event on behalf of an authenticated actor."""
     device_id = device_id or await default_device(user)
-    if not edge_keystore.has_key(device_id):
+    if not edge_keystore.get_private_key(device_id):
         raise ApiError(409, "DEVICE_NOT_PROVISIONED",
                        "Device has no server-side signing material; sign client-side instead")
     env = bus.build_envelope(event_type, payload, origin_device_id=device_id,

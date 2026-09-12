@@ -151,6 +151,11 @@ async def register_device(body: DeviceRegisterBody, user: dict = Depends(get_cur
         "owner_user_id": user["user_id"], "device_type": body.device_type,
         "signing_mode": signing_mode, "trust_level": "provisional",
         "label": body.label})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        await postgres.upsert_device(device_id=device_id, owner_user_id=user["user_id"],
+                                     public_key=public_key, signing_mode=signing_mode,
+                                     trust_level="provisional")
     return {"device_id": device_id, "signing_mode": signing_mode,
             "simulated_signer": signing_mode == "server_keystore",
             "public_key": public_key, "event_id": result.get("event_id"),

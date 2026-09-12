@@ -259,13 +259,19 @@ async def _verify_device_signature(env: dict):
 
 async def ensure_cloud_identity():
     """Provision the cloud node's signing identity (private key on filesystem only)."""
+    if PERSISTENCE_BACKEND == "postgres":
+        from . import postgres
     existing = await postgres.find_device(CLOUD_DEVICE_ID) if PERSISTENCE_BACKEND == "postgres" else await prod_db.devices.find_one({"device_id": CLOUD_DEVICE_ID})
-    if existing and edge_keystore.has_key(CLOUD_DEVICE_ID):
+    if PERSISTENCE_BACKEND != "postgres" and existing and edge_keystore.get_private_key(CLOUD_DEVICE_ID):
         _cloud_pub_cache["key"] = existing["public_key"]
         return
     pub = edge_keystore.provision(CLOUD_DEVICE_ID)
     if PERSISTENCE_BACKEND == "postgres":
-        logger.info("PostgreSQL mode: cloud identity is verified at the event trust boundary")
+        from . import postgres
+        await postgres.upsert_device(device_id=CLOUD_DEVICE_ID, owner_user_id=None,
+                                     public_key=pub, signing_mode="server_keystore",
+                                     trust_level="trusted")
+        logger.info("PostgreSQL mode: cloud identity was provisioned or recovered")
     else:
         await prod_db.devices.update_one(
             {"device_id": CLOUD_DEVICE_ID},
