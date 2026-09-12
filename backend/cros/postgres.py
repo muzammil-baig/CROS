@@ -213,7 +213,7 @@ async def list_entities(collection: str, *, query: dict[str, Any], limit: int = 
             return result
         rows = await conn.fetch(
             "select entity_id, payload, created_at, updated_at from operational.entity where collection = $1 order by updated_at desc limit $2",
-            collection, limit,
+            collection, max(limit, 100000) if query else limit,
         )
     import json
     result = []
