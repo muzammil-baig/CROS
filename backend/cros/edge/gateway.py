@@ -12,6 +12,7 @@ Shapely (same semantics, no spatial index). Recorded as a known limitation.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -79,6 +80,11 @@ class EdgeNode:
     def __init__(self, gateway_id: str):
         self.gateway_id = gateway_id
         self.path = EDGE_DIR / f"{gateway_id}.sqlite"
+        if self.path.exists():
+            try:
+                os.chmod(self.path, 0o600)
+            except OSError:
+                pass
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
@@ -135,8 +141,8 @@ class EdgeNode:
         rows = self.conn.execute(
             "SELECT o.*, e.envelope FROM outbound_queue o JOIN local_events e "
             "ON e.event_id=o.event_id WHERE o.state IN ('QUEUED','FAILED') "
-            "ORDER BY CASE o.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
-                            "WHEN 'normal' THEN 2 ELSE 3 END, o.queued_at DESC LIMIT ?", (limit,)).fetchall()
+            "ORDER BY o.queued_at DESC, CASE o.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
+                            "WHEN 'normal' THEN 2 ELSE 3 END LIMIT ?", (limit,)).fetchall()
         return [{**dict(r), "envelope": json.loads(r["envelope"])} for r in rows]
 
     def mark_synced(self, event_ids: list[str], state: str = "DELIVERED",

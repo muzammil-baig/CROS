@@ -258,9 +258,8 @@ async def mesh_relay(gateway_id: str, body: MeshRelayBody,
         relayed_set = set(relayed)
         relayed_envs = [item["envelope"] for item in pending
                         if item["envelope"]["event_id"] in relayed_set]
-        outbound = peer.outbound(limit=body.max_events)
         envelopes, seen = [], set()
-        for env in relayed_envs + [o["envelope"] for o in outbound]:
+        for env in relayed_envs:
             eid = env["event_id"]
             if eid in seen:
                 continue

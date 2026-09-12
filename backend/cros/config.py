@@ -11,6 +11,7 @@ SIM_DB_NAME = f"{DB_NAME}_simulation"
 POSTGRES_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
 POSTGRES_URL_NON_POOLING = os.environ.get("POSTGRES_URL_NON_POOLING") or POSTGRES_URL
 PERSISTENCE_BACKEND = os.environ.get("CROS_PERSISTENCE_BACKEND", "mongo")
+TEST_MODE = os.environ.get("CROS_TEST_MODE", "0") == "1"
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = "HS256"
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")

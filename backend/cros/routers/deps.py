@@ -14,6 +14,7 @@ from ..db import db as prod_db
 from ..errors import ApiError
 from ..events import bus
 from ..models import utcnow_iso
+from ..crypto import verify
 from ..ulid import new_ulid
 
 
@@ -92,7 +93,18 @@ async def sign_if_delegated(envelope: dict) -> dict:
         device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
     if device and not device.get("revoked") and \
             device.get("signing_mode") == "server_keystore":
-        envelope["signature"] = edge_keystore.sign_envelope(device_id, envelope)
+        signature = edge_keystore.sign_envelope(device_id, envelope)
+        if signature and device.get("public_key") and verify(device["public_key"], envelope, signature):
+            envelope["signature"] = signature
+        else:
+            public_key = edge_keystore.provision(device_id)
+            envelope["signature"] = edge_keystore.sign_envelope(device_id, envelope)
+            if PERSISTENCE_BACKEND == "postgres":
+                from .. import postgres
+                await postgres.upsert_device(
+                    device_id=device_id, owner_user_id=device.get("owner_user_id"),
+                    public_key=public_key, signing_mode="server_keystore",
+                    trust_level=device.get("trust_level", "provisional"))
     return envelope
 
 

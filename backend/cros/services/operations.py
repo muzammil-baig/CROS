@@ -88,6 +88,8 @@ async def run_pipeline(db, request_id: str, *, actor_id: str | None = None,
         steps["duplicate_of"] = dup["request_id"] if dup else None
 
     if dup:
+        req["priority"] = prioritization.compute_priority(req, 0.0)
+        steps["priority"] = req["priority"]
         steps["outcome"] = "MERGED_AS_DUPLICATE"
         return steps
 

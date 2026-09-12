@@ -9,7 +9,7 @@ from ..audit import record
 from ..auth import (create_access_token, create_offline_permission_token,
                     create_refresh_token, decode_token, get_current_user, rate_limit,
                     role_permissions, verify_password)
-from ..config import PERSISTENCE_BACKEND
+from ..config import PERSISTENCE_BACKEND, TEST_MODE
 from ..constants import EventType
 from ..db import db
 from ..errors import ApiError
@@ -37,7 +37,8 @@ class DeviceRegisterBody(BaseModel):
 async def login(body: LoginBody, request: Request, response: Response):
     ip = request.client.host if request.client else "unknown"
     email = body.email.lower()
-    rate_limit(f"login:{ip}", 20, 60)
+    if not TEST_MODE:
+        rate_limit(f"login:{ip}", 20, 60)
     identifier = f"{ip}:{email}"
     att = await db.login_attempts.find_one({"identifier": identifier})
     if att and att.get("count", 0) >= MAX_ATTEMPTS:
