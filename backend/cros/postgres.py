@@ -228,13 +228,35 @@ async def count_entities(collection: str, query: dict[str, Any]) -> int:
     return len(rows)
 
 
+def _user_document(row: dict[str, Any]) -> dict[str, Any]:
+    contact = row.get("contact_info") or {}
+    return {
+        "user_id": str(row["id"]),
+        "email": contact.get("email", ""),
+        "name": row.get("display_name"),
+        "role": contact.get("role", "citizen"),
+        "org_id": str(row["organization_id"]) if row.get("organization_id") else None,
+        "password_hash": row.get("credential_hash"),
+        "disabled": not row.get("is_active", True),
+    }
+
+
 async def find_user_by_id(user_id: str) -> dict[str, Any] | None:
     async with connection() as conn:
         row = await conn.fetchrow(
             "select id, organization_id, display_name, contact_info, is_active, credential_hash from core.app_user where id = $1",
             UUID(user_id),
         )
-    return dict(row) if row else None
+    return _user_document(dict(row)) if row else None
+
+
+async def find_user_by_email(email: str) -> dict[str, Any] | None:
+    async with connection() as conn:
+        row = await conn.fetchrow(
+            "select id, organization_id, display_name, contact_info, is_active, credential_hash from core.app_user where lower(contact_info->>'email') = lower($1) limit 1",
+            email,
+        )
+    return _user_document(dict(row)) if row else None
 
 
 async def find_device(device_id: str) -> dict[str, Any] | None:
@@ -275,7 +297,7 @@ async def close() -> None:
 __all__ = [
     "append_simulation_event", "check_connection", "close", "connection",
     "count_entities", "create_simulation_run", "delete_entity", "find_user_by_id",
-    "get_simulation_run", "healthcheck", "insert_event",
+    "find_user_by_email", "get_simulation_run", "healthcheck", "insert_event",
     "list_entities", "list_simulation_events", "list_simulation_runs", "open_pool",
     "simulation_event_exists", "update_simulation_run", "upsert_entity",
 ]
