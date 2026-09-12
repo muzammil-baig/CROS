@@ -123,7 +123,7 @@ async def _execute_postgres(run_id: str, scenario: str, params: dict):
             await postgres.update_simulation_run(run_id, steps=steps)
             await asyncio.sleep(0.2)
         metrics = {"ticks": len(steps), "events_generated": len(steps) + 1, "production_writes": 0, "unresolved_demand": 0, "resilience_score": 1.0, "computed_at": utcnow_iso()}
-        status = "aborted" if ctl["abort"] else "completed"
+        status = "cancelled" if ctl["abort"] else "completed"
         await postgres.update_simulation_run(run_id, status=status, metrics=metrics, steps=steps)
         await postgres.append_simulation_event(run_id=run_id, event_id=f"sim-{run_id}-completed", event_type=EventType.SIMULATION_COMPLETED.value, payload={"simulation_id": run_id, "metrics": metrics}, hlc_timestamp=utcnow_iso())
     except Exception as exc:
@@ -175,7 +175,7 @@ async def abort(simulation_id: str) -> dict:
         run = await postgres.get_simulation_run(simulation_id)
         if not run:
             raise ValueError("Simulation not found")
-        await postgres.update_simulation_run(simulation_id, status="aborted")
+        await postgres.update_simulation_run(simulation_id, status="cancelled")
         return {"simulation_id": simulation_id, "status": "aborting"}
     sim_db = get_db(True)
     await sim_db.simulation_runs.update_one({"simulation_id": simulation_id},

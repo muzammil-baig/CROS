@@ -95,6 +95,10 @@ async def create_simulation_run(*, scenario: str, params: dict[str, Any], starte
                                 description: str, isolation: dict[str, Any]) -> dict[str, Any]:
     import json
     async with connection() as conn:
+        simulation_id = await conn.fetchval(
+            "insert into simulation.simulation (name, description) values ($1, $2) returning id",
+            scenario, description,
+        )
         row = await conn.fetchrow(
             """
             insert into simulation.simulation_run
@@ -103,7 +107,7 @@ async def create_simulation_run(*, scenario: str, params: dict[str, Any], starte
             returning id, simulation_id, scenario, params, started_by, status, started_at, completed_at,
                       metrics, error, steps, isolation
             """,
-            uuid4(), scenario, json.dumps(params), _uuid_or_none(started_by), json.dumps(isolation),
+            simulation_id, scenario, json.dumps(params), _uuid_or_none(started_by), json.dumps(isolation),
         )
     return dict(row)
 
@@ -140,7 +144,7 @@ async def update_simulation_run(run_id: str, *, status: str | None = None,
         fields.append(f"error = ${len(values) + 1}"); values.append(error[:500])
     if steps is not None:
         fields.append(f"steps = ${len(values) + 1}::jsonb"); values.append(json.dumps(steps))
-    if status in {"completed", "aborted", "failed"}:
+    if status in {"completed", "cancelled", "failed"}:
         fields.append("completed_at = now()")
     if not fields:
         return
