@@ -1,6 +1,23 @@
 import pytest
 
-from cros.services import allocation, capacity, prioritization, routing, transport
+from cros.services import allocation, capacity, prioritization, routing, transport, verification
+
+
+def test_verification_conflict_stale_and_provenance_vector():
+    primary = {"report_id": "R-1", "source_type": "citizen", "device_id": "D-1",
+               "created_at": "2999-01-01T00:00:00+00:00",
+               "location": {"coordinates": [90.4, 23.78]}}
+    related = [{"report_id": "R-2", "source_type": "citizen",
+                "created_at": "2999-01-01T00:00:00+00:00",
+                "location": {"coordinates": [90.4001, 23.7801]},
+                "contradicts": True}]
+    result = verification.evaluate(primary, related)
+    assert result["status"] == "CONTRADICTORY"
+    assert result["contradicting_report_ids"] == ["R-2"]
+    assert result["schema_version"] == "verification-v1"
+    assert result["evidence"]["primary_report_id"] == "R-1"
+    assert result["uncertainty"] == ["No independent corroborating report in the spatial-temporal window"]
+
 
 
 def test_capacity_rejects_invalid_operations_before_storage():

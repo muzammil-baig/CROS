@@ -89,9 +89,21 @@ def evaluate(primary_report: dict, related_reports: list[dict]) -> dict:
     else:
         status = "UNVERIFIED"
 
+    uncertainty = []
+    if not corroborating:
+        uncertainty.append("No independent corroborating report in the spatial-temporal window")
+    if not contradicting and status not in ("VERIFIED", "CORROBORATED"):
+        uncertainty.append("Source confidence or freshness is insufficient for verification")
     return {
         "status": status,
         "confidence": confidence,
+        "uncertainty": uncertainty,
+        "evidence": {
+            "primary_report_id": primary_report.get("report_id"),
+            "source_trust": base,
+            "spatial_radius_m": DEDUPE_RADIUS_M * 4,
+            "temporal_window_seconds": DEDUPE_WINDOW_SECONDS * 2,
+        },
         "source_type": primary_report.get("source_type"),
         "origin_device_id": primary_report.get("device_id"),
         "corroborating_report_ids": corroborating,
@@ -99,6 +111,7 @@ def evaluate(primary_report: dict, related_reports: list[dict]) -> dict:
         "freshness_seconds": int(freshness),
         "stale": stale,
         "algorithm": "deterministic_corroboration_v1",
+        "schema_version": "verification-v1",
         "computed_at": datetime.now(timezone.utc).isoformat(),
     }
 

@@ -245,6 +245,8 @@ def deterministic_critic(rec: dict) -> CriticVerdict:
         blocking = True
     if (ev.get("verification_confidence") or 0) < 0.35:
         codes.append("LOW_EVIDENCE_CONFIDENCE")
+    if ev.get("uncertainty"):
+        codes.append("EVIDENCE_UNCERTAINTY")
     if not action.get("resource_id"):
         codes.append("NO_RESOURCE_AVAILABLE")
         blocking = True

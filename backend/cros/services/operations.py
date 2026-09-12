@@ -157,6 +157,8 @@ async def draft_recommendation(db, *, req, assignment, route, hazard_severity, i
     evidence_summary = {
         "verification_status": (req.get("verification") or {}).get("status"),
         "verification_confidence": (req.get("verification") or {}).get("confidence"),
+        "uncertainty": (req.get("verification") or {}).get("uncertainty", []),
+        "provenance": (req.get("verification") or {}).get("evidence", {}),
         "priority_tier": (req.get("priority") or {}).get("tier"),
         "priority_score": (req.get("priority") or {}).get("score"),
         "hazard_severity": hazard_severity,

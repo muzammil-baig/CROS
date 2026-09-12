@@ -141,7 +141,7 @@ class EdgeNode:
         rows = self.conn.execute(
             "SELECT o.*, e.envelope FROM outbound_queue o JOIN local_events e "
             "ON e.event_id=o.event_id WHERE o.state IN ('QUEUED','FAILED') "
-            "ORDER BY o.queued_at DESC, CASE o.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
+            "ORDER BY CASE o.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
                             "WHEN 'normal' THEN 2 ELSE 3 END LIMIT ?", (limit,)).fetchall()
         return [{**dict(r), "envelope": json.loads(r["envelope"])} for r in rows]
 
