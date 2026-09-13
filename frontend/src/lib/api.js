@@ -29,6 +29,10 @@ export function apiError(e) {
   if (d?.error?.message) return `${d.error.code}: ${d.error.message}`;
   if (typeof d?.detail === "string") return d.detail;
   if (Array.isArray(d?.detail)) return d.detail.map((x) => x.msg || JSON.stringify(x)).join(" ");
+  if (e?.response?.status === 404) {
+    return "LOGIN SERVICE UNAVAILABLE (404). Use the demo credentials shown above, then retry when the backend is online.";
+  }
+  if (e?.response?.status === 401) return "EMAIL OR PASSWORD IS INCORRECT. Try the demo credentials shown above.";
   return e?.message || "Request failed";
 }
 
