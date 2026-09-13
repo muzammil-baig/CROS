@@ -5,9 +5,9 @@ Branch: `v0/crisis-response-os-96e14845`
 
 ## Verdict
 
-**MVP NOT READY — clean device campaign still stopped at duplicate merge**
+**MVP NOT READY — deduplication is corrected; route-to-dispatch remains guardrail-blocked**
 
-Trace result: the failing run used the incident commander device `DEV-0a2ed5b7-9c8d-54f8-99cc-34bc612ba2af`, owned by `cmd.rahman@cros.gov`; that device was intentionally revoked by the earlier negative quarantine test and reused by the positive hazard actor. Revocation is enforced correctly. A new clean run used active citizen device `DEV-007dd76a-ca70-5b8c-b54a-ce19417a3f91` and active responder device `DEV-c37b3630-78ce-5211-bd54-5b709d82f330`, but semantic dedupe merged the request into the revoked-run request before route-to-mission continuation. The hazard stage succeeded with the active responder device, proving isolation at device level, but the full same-run chain remains unproven.
+The deduplication fix now requires the same source/device and an exact business fingerprint, excluding request/event IDs. Direct run `RUN-DEDUP-FIX-c1249edc631341d99c754268f00c2f07` created request `REQ-9A7E8C3EDD4C47DD` with `event_status=applied` and `duplicate_of=null`, then created hazard `HZ-01M2E0Y5DR4R1YNBKMQQHZJ57T` with HTTP 201 using active responder device `DEV-c37b3630-78ce-5211-bd54-5b709d82f330`. Route overlay recomputed with 212 blocked edges; deterministic fallback, allocation, recommendation, and hard Safety-Critic executed, but no feasible route/resource remained, so the recommendation was blocked before HITL approval, mission dispatch, or same-run communication.
 
 Core PostgreSQL request-to-mission behavior, transport state transitions, mesh relay, sync/idempotency, security controls, deterministic LLM fallback, and PostGIS routing integration are verified. A real local edge runtime acceptance was executed with cloud calls absent; the complete edge-to-gateway-to-PostgreSQL artifact chain and the full adversarial matrix were not both captured as one integrated campaign, so readiness is not claimed.
 
@@ -54,16 +54,16 @@ Observed fresh request outcome: `PENDING_APPROVAL` followed by `approved`; `miss
 
 | Stage | Status | Evidence | Event/run ID | Blocker |
 |---|---|---|---|---|
-| Citizen emergency request | PASS | `POST /requests` returned 201 and `event_status=applied`; request reached `triaged` | `REQ-BB05CDA928A64B9E` / `01M2DZNADXR733PFFC0R8V7WPM` / `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Offline transport identity was not independently traced through mesh in this run |
-| Verification and prioritization | PASS | Deterministic verification returned `UNVERIFIED`, explicit `LLM_PROVIDER_UNCONFIGURED` fallback, and priority-v2 score `57.24` | `REQ-BB05CDA928A64B9E` | No corroborating report |
-| Hazard spatial detection | FAIL | Same-run hazard POST returned `422 EVENT_REJECTED / DEVICE_REVOKED` | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Device was revoked before hazard action |
-| Route invalidation/recomputation | NOT PROVEN | No same-run route version or recompute event | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Hazard action rejected |
-| Allocation/recommendation/Safety-Critic | PARTIAL | Existing fallback recommendation/critic was visible, but it was an unrelated persisted recommendation; same-run recommendation was blocked by unavailable route/resource | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | No same-run causal chain |
-| HITL approval and mission dispatch | FAIL | No same-run approval, mission, communication, or dispatch event | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Chain stopped before recommendation approval |
-| Active positive device isolation | PASS | Citizen request used active `DEV-007dd76a-ca70-5b8c-b54a-ce19417a3f91`; hazard used active `DEV-c37b3630-78ce-5211-bd54-5b709d82f330` and returned 201 | `RUN-CLEAN-847c2e7f57634d2580118edd851167a4` | Request was semantically merged before full continuation |
+| Citizen emergency request | PASS | `POST /requests` returned 201, `event_status=applied`, `duplicate_of=null`, and request reached `triaged` | `REQ-9A7E8C3EDD4C47DD` / `01M2E0Y315MHTGV157Q23DJW46` / `RUN-DEDUP-FIX-c1249edc631341d99c754268f00c2f07` | Offline transport identity was not independently traced through mesh in this run |
+| Verification and prioritization | PASS | Deterministic verification returned `UNVERIFIED`, explicit `LLM_PROVIDER_UNCONFIGURED` fallback, and priority-v2 score `57.23` | `REQ-9A7E8C3EDD4C47DD` | No corroborating report |
+| Hazard spatial detection | PASS | Active responder hazard POST returned 201 with verified flood geometry and `road_blocked=true` | `HZ-01M2E0Y5DR4R1YNBKMQQHZJ57T` / `01M2E0Y5GCC95R5S8GF59A75GF` | Same-run edge transport remains unproven |
+| Route invalidation/recomputation | PASS | Same run returned road graph with `blocked_edges=212` and flood hazard overlay entries for the new hazard | `HZ-01M2E0Y5DR4R1YNBKMQQHZJ57T` / `RUN-DEDUP-FIX-c1249edc631341d99c754268f00c2f07` | Route remained degraded/no feasible path |
+| Allocation/recommendation/Safety-Critic | PASS/PARTIAL | Same run emitted allocation with `unassigned_request_ids`, deterministic fallback recommendation, and hard critic block with `NO_FEASIBLE_ROUTE`, `EVIDENCE_UNCERTAINTY`, and `NO_RESOURCE_AVAILABLE` | `REQ-9A7E8C3EDD4C47DD` / recommendation `01M2E0Y4E383P23GWNGSZ5GPPR` | No feasible resource for HITL approval |
+| HITL approval and mission dispatch | FAIL | Same-run recommendation ended `approval_status=blocked`; no approval, mission, communication, or dispatch event | `RUN-DEDUP-FIX-c1249edc631341d99c754268f00c2f07` | Safety guardrail correctly stopped unsafe dispatch |
+| Active positive device isolation | PASS | Citizen request used active `DEV-007dd76a-ca70-5b8c-b54a-ce19417a3f91`; hazard used active `DEV-c37b3630-78ce-5211-bd54-5b709d82f330`; no duplicate merge occurred | `RUN-DEDUP-FIX-c1249edc631341d99c754268f00c2f07` | Same-run edge transport remains unproven |
 | Revoked-device negative control | PASS | The previously revoked commander device remains rejected by `DEVICE_REVOKED`; no security bypass was used | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Positive and negative actor identity were historically coupled |
-| Audit | PARTIAL | `GET /audit` returned 200 and contains active-device `HAZARD_REPORTED`, request fallback, and sync/audit records | `RUN-CLEAN-847c2e7f57634d2580118edd851167a4` | No complete same-run mission audit artifact |
-| LLM outage continuity | PARTIAL | Fallback was explicit and non-fabricated during the clean request pipeline | `RUN-CLEAN-847c2e7f57634d2580118edd851167a4` | Duplicate merge prevented route-to-dispatch continuation |
+| Audit | PARTIAL | `GET /audit` returned 200 and contains this run's request, fallback, allocation, critic, hazard, and route-related records | `RUN-DEDUP-FIX-c1249edc631341d99c754268f00c2f07` | No same-run mission audit artifact |
+| LLM outage continuity | PARTIAL | Fallback was explicit and non-fabricated; request, prioritization, allocation, recommendation, and critic all continued without an LLM | `RUN-DEDUP-FIX-c1249edc631341d99c754268f00c2f07` | Guardrail blocked continuation before mission dispatch |
 
 ## Scenario A–E result
 
@@ -166,9 +166,9 @@ F = not verified in this campaign.
 
 ## Top remaining MVP gaps
 
-1. Run the integrated scenario with an active, non-revoked device and preserve the same event identity from edge transport through hazard and audit.
-2. Extend that same run through route invalidation/recomputation, allocation, recommendation, explicit approval, mission creation/dispatch, communication selection, and same-run audit.
-3. Rerun the full backend suite after the auth rate-limit window resets; current mesh/security setup was blocked by rate limiting and missing test environment variables.
+1. Preserve the corrected deduplication behavior and add a direct API regression proving different active source/device fingerprints never merge.
+2. Produce one safe-route fixture or controlled hazard scope that allows the same run to continue from allocation through HITL approval, mission creation/dispatch, communication selection, and same-run audit.
+3. Rerun the full backend suite after the auth rate-limit window resets; the latest run reached 45 passed before 14 mesh/device setup errors caused by gateway login 429.
 4. Remove or explicitly disposition the remaining test warnings.
 
 ## Previous gap history
