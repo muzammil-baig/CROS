@@ -5,9 +5,9 @@ Branch: `v0/crisis-response-os-96e14845`
 
 ## Verdict
 
-**MVP NOT READY — integrated run failed before hazard-to-dispatch continuation**
+**MVP NOT READY — clean device campaign still stopped at duplicate merge**
 
-The direct run `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` proves request acceptance, deterministic fallback, verification, and prioritization, but it does not prove the required same-run chain through hazard detection, route invalidation/recomputation, allocation, HITL, mission, communication, dispatch, and audit.
+Trace result: the failing run used the incident commander device `DEV-0a2ed5b7-9c8d-54f8-99cc-34bc612ba2af`, owned by `cmd.rahman@cros.gov`; that device was intentionally revoked by the earlier negative quarantine test and reused by the positive hazard actor. Revocation is enforced correctly. A new clean run used active citizen device `DEV-007dd76a-ca70-5b8c-b54a-ce19417a3f91` and active responder device `DEV-c37b3630-78ce-5211-bd54-5b709d82f330`, but semantic dedupe merged the request into the revoked-run request before route-to-mission continuation. The hazard stage succeeded with the active responder device, proving isolation at device level, but the full same-run chain remains unproven.
 
 Core PostgreSQL request-to-mission behavior, transport state transitions, mesh relay, sync/idempotency, security controls, deterministic LLM fallback, and PostGIS routing integration are verified. A real local edge runtime acceptance was executed with cloud calls absent; the complete edge-to-gateway-to-PostgreSQL artifact chain and the full adversarial matrix were not both captured as one integrated campaign, so readiness is not claimed.
 
@@ -60,8 +60,10 @@ Observed fresh request outcome: `PENDING_APPROVAL` followed by `approved`; `miss
 | Route invalidation/recomputation | NOT PROVEN | No same-run route version or recompute event | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Hazard action rejected |
 | Allocation/recommendation/Safety-Critic | PARTIAL | Existing fallback recommendation/critic was visible, but it was an unrelated persisted recommendation; same-run recommendation was blocked by unavailable route/resource | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | No same-run causal chain |
 | HITL approval and mission dispatch | FAIL | No same-run approval, mission, communication, or dispatch event | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Chain stopped before recommendation approval |
-| Audit | FAIL | `GET /admin/audit` returned 404 in the run | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | No complete same-run audit artifact |
-| LLM outage continuity | PARTIAL | Fallback was explicit and non-fabricated during verification/recommendation | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Continuation to mission dispatch was not reached |
+| Active positive device isolation | PASS | Citizen request used active `DEV-007dd76a-ca70-5b8c-b54a-ce19417a3f91`; hazard used active `DEV-c37b3630-78ce-5211-bd54-5b709d82f330` and returned 201 | `RUN-CLEAN-847c2e7f57634d2580118edd851167a4` | Request was semantically merged before full continuation |
+| Revoked-device negative control | PASS | The previously revoked commander device remains rejected by `DEVICE_REVOKED`; no security bypass was used | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Positive and negative actor identity were historically coupled |
+| Audit | PARTIAL | `GET /audit` returned 200 and contains active-device `HAZARD_REPORTED`, request fallback, and sync/audit records | `RUN-CLEAN-847c2e7f57634d2580118edd851167a4` | No complete same-run mission audit artifact |
+| LLM outage continuity | PARTIAL | Fallback was explicit and non-fabricated during the clean request pipeline | `RUN-CLEAN-847c2e7f57634d2580118edd851167a4` | Duplicate merge prevented route-to-dispatch continuation |
 
 ## Scenario A–E result
 
