@@ -1,13 +1,13 @@
 # CROS Flood-Response MVP Acceptance Report
 
-Date: 2026-09-13
+Date: 2026-09-14
 Branch: `v0/crisis-response-os-96e14845`
 
 ## Verdict
 
-**MVP NOT READY — deduplication is corrected; route-to-dispatch remains guardrail-blocked**
+**MVP NOT READY — no qualifying single continuous final campaign was captured**
 
-The deduplication fix now requires the same source/device and an exact business fingerprint, excluding request/event IDs. Direct run `RUN-DEDUP-FIX-c1249edc631341d99c754268f00c2f07` created request `REQ-9A7E8C3EDD4C47DD` with `event_status=applied` and `duplicate_of=null`, then created hazard `HZ-01M2E0Y5DR4R1YNBKMQQHZJ57T` with HTTP 201 using active responder device `DEV-c37b3630-78ce-5211-bd54-5b709d82f330`. Route overlay recomputed with 212 blocked edges; deterministic fallback, allocation, recommendation, and hard Safety-Critic executed, but no feasible route/resource remained, so the recommendation was blocked before HITL approval, mission dispatch, or same-run communication.
+The previously captured direct run `RUN-DEDUP-FIX-c1249edc631341d99c754268f00c2f07` proves corrected deduplication, hazard creation, route recomputation, deterministic fallback, allocation, recommendation, and Safety-Critic blocking. The later `RUN-HITL-bc936c75dd1e45a083b62b0e339f3327` proves approval, mission dispatch, and scoped communication delivery/ack, but it is a separate run. The final requested single correlation-scoped chain therefore remains unproven and MVP readiness is not claimed.
 
 Core PostgreSQL request-to-mission behavior, transport state transitions, mesh relay, sync/idempotency, security controls, deterministic LLM fallback, and PostGIS routing integration are verified. A real local edge runtime acceptance was executed with cloud calls absent; the complete edge-to-gateway-to-PostgreSQL artifact chain and the full adversarial matrix were not both captured as one integrated campaign, so readiness is not claimed.
 
@@ -23,7 +23,7 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 - True zero-connectivity EdgeNode run: **PASS**; actual SQLite source and destination files recorded one event with one local projection, one queued outbox item, preserved event ID, and zero cloud calls. Temporary evidence databases were removed after capture.
 - Edge-to-mesh-to-gateway-to-PostgreSQL convergence: **PARTIAL, same event exercised**; event `EV-FINAL-bcbd63092b1f4bdb9401eb67b0054aed` traversed SQLite queue, mesh relay, gateway sync, PostgreSQL event store, request projection, and audit. Replay returned no new relay event. Migration `0003_event_origin_identity.sql` now preserves the literal source in `origin_device_source` alongside the canonical UUID mapping; round-trip verification passed with `GW-LITERAL-ACCEPTANCE`.
 - Adversarial/security campaign: **48 passed, 6 warnings** including explicit event ID, signature, origin, HLC, causal-parent, rotated key, oversized input boundary, prompt-injection-as-data, malformed geometry, and unknown-field rows. Live HTTP geometry acceptance rejected four hostile payloads with **422**. Live device quarantine also passed: pre-revocation request **201**, revoke **200**, post-revocation event **422 DEVICE_REVOKED**, and the rejected request was **404** on lookup.
-- Integrated flood plus route-blocking hazard plus LLM outage: **FAIL, direct run captured** under `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9`; the request completed through offline API handling, PostgreSQL-backed sync state, deterministic verification/prioritization, and fallback recommendation with hard guardrail. The same run's hazard write was rejected as `DEVICE_REVOKED`, the audit endpoint returned 404, and it did not reach route invalidation, HITL, mission, communication, or dispatch.
+- Final requested one-run campaign: **BLOCKED/NOT PROVEN**. The first execution could not authenticate the configured gateway actor (`401 INVALID_CREDENTIALS`); the corrected retry did not execute because the campaign harness contained a Python syntax error. No new run is promoted into acceptance evidence. Existing separate evidence remains: `RUN-DEDUP-FIX-c1249edc631341d99c754268f00c2f07` for hazard/route/critic and `RUN-HITL-bc936c75dd1e45a083b62b0e339f3327` for approval/dispatch/communication.
 - Existing device/event security coverage includes signed-envelope tamper rejection, RBAC, replay, and mesh relay paths.
 - Resilience simulator API runs completed for: `flood_progression`, `communication_degradation`, `infrastructure_failure`, `resource_shortage`, `misinformation`, and `gateway_failure`.
 - Each PostgreSQL simulation run completed with `production_writes: 0`; observed metrics were `ticks: 2`, `events_generated: 3`, `resilience_score: 1.0`, `unresolved_demand: 0`. These metrics are not sufficient to claim operational resilience because the PostgreSQL runner does not execute the full scenario services.
