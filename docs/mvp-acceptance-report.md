@@ -20,7 +20,7 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 - Full backend suite: **67 passed, 7 warnings** (including the 10-row adversarial matrix).
 - True zero-connectivity EdgeNode run: **PASS**; actual SQLite source and destination files recorded one event with one local projection, one queued outbox item, preserved event ID, and zero cloud calls. Temporary evidence databases were removed after capture.
 - Edge-to-mesh-to-gateway-to-PostgreSQL convergence: **PARTIAL, same event exercised**; event `EV-FINAL-bcbd63092b1f4bdb9401eb67b0054aed` traversed SQLite queue, mesh relay, gateway sync, PostgreSQL event store, request projection, and audit. Replay returned no new relay event. Migration `0003_event_origin_identity.sql` now preserves the literal source in `origin_device_source` alongside the canonical UUID mapping; round-trip verification passed with `GW-LITERAL-ACCEPTANCE`.
-- Adversarial/security campaign: **48 passed, 6 warnings** including a new explicit matrix for event ID, signature, origin, HLC, causal-parent, rotated key, oversized input boundary, prompt-injection-as-data, malformed geometry, and unknown-field rejection. The matrix is direct crypto/model evidence; HTTP quarantine evidence remains covered by the existing signed-sync test.
+- Adversarial/security campaign: **48 passed, 6 warnings** including explicit event ID, signature, origin, HLC, causal-parent, rotated key, oversized input boundary, prompt-injection-as-data, malformed geometry, and unknown-field rows. Live HTTP geometry acceptance rejected malformed, unsupported-type, out-of-bounds, and forbidden-field payloads with **422**; revoked-device HTTP quarantine remains unverified.
 - Integrated flood plus route-blocking hazard plus LLM outage: **PARTIAL, one continuous run captured** under `RUN-FLOOD-UNIQUE-f0445fad21ae42e2af97673e9372c409`; the same correlation ID covered SQLite queue, mesh recovery, deterministic LLM fallback, prioritization, hazard introduction, and repeat observation. The run did not reach an approved recommendation/mission or prove route invalidation/recomputation, so readiness remains blocked.
 - Existing device/event security coverage includes signed-envelope tamper rejection, RBAC, replay, and mesh relay paths.
 - Resilience simulator API runs completed for: `flood_progression`, `communication_degradation`, `infrastructure_failure`, `resource_shortage`, `misinformation`, and `gateway_failure`.
@@ -133,7 +133,7 @@ The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. Produ
 | Edge → mesh → gateway → PostgreSQL convergence | B | Same event traversed queue, mesh, gateway sync, PostgreSQL, projection, and audit; replay was a no-op; `origin_device_source` round-trip verified | Full combined campaign and audit artifact still requires final integrated scenario |
 | Device and envelope integrity | B | 48 adversarial/convergence checks pass, including explicit signed-field mutation, signature, rotated key, payload boundary, prompt-data, geometry, and unknown-field rows | HTTP-level revoked-device quarantine and production full-campaign artifact still need direct capture |
 | Authorization and HITL | PASS/PARTIAL | RBAC, approval, audit, and mission tests passed | Full role-by-role matrix artifact not captured |
-| Input and agent safety | B | Explicit prompt-injection-as-data, oversized boundary, malformed geometry, and unknown-field tests pass; no authority is derived from report text | API-level geometry rejection and full safety audit artifact remain incomplete |
+| Input and agent safety | B | Explicit prompt-injection-as-data, oversized boundary, malformed geometry, and unknown-field tests pass; live hazard API rejected all four hostile geometry payloads with 422; no authority is derived from report text | Full safety audit artifact remains incomplete |
 | Flood routing and PostGIS | PASS | Spatial schema, GiST, spatial predicates, route snapshots, hazard invalidation, and routing tests passed | Combined scenario evidence remains separate |
 | LLM outage continuity | PASS/PARTIAL | Explicit deterministic fallback with no fabricated response; full suite passed | Combined outage-to-approved-mission run not captured |
 | Full backend regression | PASS | `57 passed, 7 warnings` | Warnings remain |
@@ -150,7 +150,7 @@ F = not verified in this campaign.
 ## Top remaining MVP gaps
 
 1. Capture the final integrated flood/hazard/LLM-outage run with the same event ID and audit record; literal origin identity preservation is now implemented and verified.
-2. Capture HTTP-level revoked-device rejection/quarantine and API-level malicious-geometry rejection as production evidence.
+2. Capture HTTP-level revoked-device rejection/quarantine as production evidence; malicious-geometry API rejection is now directly verified with four hostile payloads returning 422.
 3. Extend the captured flood run through route invalidation/recomputation, allocation, recommendation, explicit approval, mission creation/dispatch, communication selection, and same-run audit.
 4. Remove or explicitly disposition the remaining test warnings.
 
