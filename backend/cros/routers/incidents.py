@@ -1,7 +1,8 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from shapely.geometry import shape
 
 from ..auth import require
 from ..constants import EventType
@@ -45,6 +46,27 @@ class CreateHazardBody(BaseModel):
     hazard_type: str = "flood"
     geometry: dict
     description: str = Field(default="", max_length=1000)
+
+    @field_validator("geometry")
+    @classmethod
+    def validate_geometry(cls, value: dict) -> dict:
+        if not isinstance(value, dict) or value.get("type") not in {
+                "Point", "LineString", "Polygon", "MultiPoint", "MultiLineString",
+                "MultiPolygon", "GeometryCollection"}:
+            raise ValueError("geometry must be a supported GeoJSON geometry")
+        if any(key.startswith("__") for key in value):
+            raise ValueError("geometry contains forbidden fields")
+        try:
+            geometry = shape(value)
+        except Exception as exc:
+            raise ValueError("geometry is not valid GeoJSON") from exc
+        if geometry.is_empty or not geometry.is_valid:
+            raise ValueError("geometry must be non-empty and valid")
+        minx, miny, maxx, maxy = geometry.bounds
+        if not (-180 <= minx <= 180 and -180 <= maxx <= 180 and
+                -90 <= miny <= 90 and -90 <= maxy <= 90):
+            raise ValueError("geometry coordinates are outside geographic bounds")
+        return value
     severity: float = Field(default=0.5, ge=0.0, le=1.0)
     water_level_m: Optional[float] = None
     rise_rate_m_per_hour: Optional[float] = None
