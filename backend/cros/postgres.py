@@ -70,8 +70,8 @@ async def insert_event(envelope: dict[str, Any]) -> bool:
             insert into events.event_log
               (event_id, event_type, schema_version, aggregate_type, aggregate_id,
                correlation_id, causal_parent_ids, hlc_timestamp, wall_clock_timestamp,
-               origin_device_id, origin_actor_id, payload, signature, received_at)
-            values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13, $14)
+               origin_device_id, origin_device_source, origin_actor_id, payload, signature, received_at)
+            values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15)
             on conflict (event_id) do nothing
             """,
             envelope["event_id"], envelope["event_type"], envelope.get("schema_version", 1),
@@ -81,7 +81,7 @@ async def insert_event(envelope: dict[str, Any]) -> bool:
             envelope["logical_timestamp"], envelope["wall_clock_timestamp"],
             None if envelope.get("origin_device_id") == "cloud-service-node"
             else _device_uuid(envelope.get("origin_device_id")) if envelope.get("origin_device_id") else None,
-            actor_id,
+            envelope.get("origin_device_id"), actor_id,
             __import__("json").dumps(envelope["payload"]), envelope.get("signature"),
             envelope.get("received_at") or datetime.now(timezone.utc),
         )
@@ -223,7 +223,7 @@ async def list_entities(collection: str, *, query: dict[str, Any], limit: int = 
     async with connection() as conn:
         if collection == "events":
             rows = await conn.fetch(
-                "select event_id, event_type, schema_version, aggregate_type, aggregate_id, correlation_id, causal_parent_ids, hlc_timestamp, wall_clock_timestamp, origin_device_id, origin_actor_id, payload, signature, received_at from events.event_log order by received_at desc limit $1",
+                "select event_id, event_type, schema_version, aggregate_type, aggregate_id, correlation_id, causal_parent_ids, hlc_timestamp, wall_clock_timestamp, origin_device_id, origin_device_source, origin_actor_id, payload, signature, received_at from events.event_log order by received_at desc limit $1",
                 max(limit, 100000) if query else limit,
             )
             import json
