@@ -26,8 +26,8 @@ async def default_device(user: dict) -> str:
         doc = await postgres.find_device(device_id)
     else:
         doc = await prod_db.devices.find_one({"device_id": device_id})
-    if not doc or not edge_keystore.get_private_key(device_id):
-        pub = edge_keystore.provision(device_id)
+    pub = edge_keystore.provision(device_id)
+    if not doc or doc.get("public_key") != pub:
         from ..constants import EventType
         if PERSISTENCE_BACKEND == "postgres":
             from .. import postgres

@@ -21,7 +21,7 @@ from ..db import get_db
 from ..events import bus
 from ..models import utcnow_iso
 from ..ulid import new_ulid
-from . import communication, operations
+from . import allocation, communication, operations, prioritization, routing
 from .hazard import get_module
 from .transport import TransportRegistry
 
@@ -100,7 +100,25 @@ async def _execute_postgres(run_id: str, scenario: str, params: dict):
         for tick in range(1, ticks + 1):
             if ctl["abort"]:
                 break
-            detail = {"tick": tick}
+            request = {
+                "request_id": f"SIM-{run_id}-{tick}",
+                "category": "rescue",
+                "description": f"{scenario} simulated demand at tick {tick}",
+                "people_count": int(params.get("people_per_request", 2)),
+                "created_at": utcnow_iso(),
+                "location": {"coordinates": [90.4 + tick * 0.0001, 23.78 + tick * 0.0001]},
+                "verification": {"status": "CORROBORATED", "confidence": 0.72},
+                "water_rising": scenario == "flood_progression",
+            }
+            graph = routing.build_base_graph()
+            priority = prioritization.compute_priority(request, 0.5 if scenario == "flood_progression" else 0.0)
+            resource = {"resource_id": f"SIM-RES-{tick}", "kind": "boat" if scenario == "flood_progression" else "ambulance",
+                        "status": "available", "capacity": 2,
+                        "location": {"coordinates": [90.4, 23.78]}}
+            resources = [] if scenario == "resource_shortage" else [resource]
+            proposal = allocation.propose([{**request, "priority": priority}], resources, graph, [])
+            detail = {"tick": tick, "priority": priority, "allocation": proposal,
+                      "real_services": ["prioritization", "allocation", "routing"]}
             if scenario == "flood_progression":
                 detail.update({
                     "rainfall_mm_per_hour": round(float(params.get("rainfall_mm_per_hour", 25)) * (1 + 0.2 * tick), 1),

@@ -1,8 +1,8 @@
 {
   "date": "2026-09-13",
   "branch": "v0/crisis-response-os-96e14845",
-  "verdict": "MVP NOT YET READY",
-  "tests": {"complete_backend": {"passed": 53, "warnings": 7}},
+  "verdict": "MVP REMEDIATION IN PROGRESS",
+  "tests": {"deterministic_services": {"passed": 9}, "complete_backend": {"passed": 54, "warnings": 7}},
   "simulations": [
     {"scenario": "flood_progression", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 1.077},
     {"scenario": "communication_degradation", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 0.883},
@@ -14,14 +14,15 @@
   "flood_acceptance": {
     "request_status": 201,
     "event_status": "applied",
-    "outcome": "MERGED_AS_DUPLICATE",
-    "verification": "CORROBORATED",
-    "verification_confidence": 0.9,
+    "outcome": "PENDING_APPROVAL_THEN_APPROVED",
+    "verification": "UNVERIFIED_WITH_EXPLICIT_FALLBACK",
+    "verification_confidence": 0.6,
     "priority_score": 41.6,
     "priority_version": "priority-v2",
-    "recommendation": "NOT_REACHED",
-    "approval": "NOT_REACHED",
-    "mission": "NOT_REACHED"
+    "recommendation": "CREATED",
+    "approval": "APPROVED_IMMUTABLE",
+    "mission": "CREATED",
+    "duplicate_precision": "SEMANTIC_AGREEMENT_REQUIRED"
   },
   "llm_failure": {
     "status": "deterministic_fallback_active",

@@ -6,6 +6,7 @@ persisted provenance records. Never deletes contributing reports.
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime, timezone
 
 STALE_AFTER_SECONDS = 1800
@@ -116,15 +117,32 @@ def evaluate(primary_report: dict, related_reports: list[dict]) -> dict:
     }
 
 
+def _tokens(value: object) -> set[str]:
+    return {token for token in re.findall(r"[a-z0-9]+", str(value or "").lower())
+            if len(token) > 2}
+
+
+def _same_event(candidate: dict, existing: dict) -> bool:
+    """Require corroborating event semantics, not just category and proximity."""
+    candidate_text = _tokens(candidate.get("description"))
+    existing_text = _tokens(existing.get("description"))
+    if candidate.get("reporter_user_id") and candidate.get("reporter_user_id") == existing.get("reporter_user_id"):
+        return True
+    if not candidate_text or not existing_text:
+        return False
+    overlap = len(candidate_text & existing_text) / max(1, min(len(candidate_text), len(existing_text)))
+    return overlap >= 0.35
+
+
 def find_duplicate(candidate: dict, existing: list[dict]) -> dict | None:
-    """Spatio-temporal dedupe. Returns the existing request considered the same event."""
+    """Spatio-temporal dedupe with semantic agreement and provenance retention."""
     coords = (candidate.get("location") or {}).get("coordinates")
     if not coords:
         return None
     best, best_dist = None, DEDUPE_RADIUS_M
     for e in existing:
         ec = (e.get("location") or {}).get("coordinates")
-        if not ec or e.get("category") != candidate.get("category"):
+        if not ec or e.get("category") != candidate.get("category") or not _same_event(candidate, e):
             continue
         if _age(e.get("created_at", "")) > DEDUPE_WINDOW_SECONDS:
             continue

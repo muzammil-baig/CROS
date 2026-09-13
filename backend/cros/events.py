@@ -269,10 +269,10 @@ async def ensure_cloud_identity():
     if PERSISTENCE_BACKEND == "postgres":
         from . import postgres
     existing = await postgres.find_device(CLOUD_DEVICE_ID) if PERSISTENCE_BACKEND == "postgres" else await prod_db.devices.find_one({"device_id": CLOUD_DEVICE_ID})
-    if PERSISTENCE_BACKEND != "postgres" and existing and edge_keystore.get_private_key(CLOUD_DEVICE_ID):
-        _cloud_pub_cache["key"] = existing["public_key"]
-        return
     pub = edge_keystore.provision(CLOUD_DEVICE_ID)
+    if existing and existing.get("public_key") == pub:
+        _cloud_pub_cache["key"] = pub
+        return
     if PERSISTENCE_BACKEND == "postgres":
         from . import postgres
         await postgres.upsert_device(device_id=CLOUD_DEVICE_ID, owner_user_id=None,

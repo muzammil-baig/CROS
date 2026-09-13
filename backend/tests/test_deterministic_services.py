@@ -3,6 +3,17 @@ import pytest
 from cros.services import allocation, capacity, prioritization, routing, transport, verification
 
 
+def test_duplicate_requires_semantic_agreement():
+    candidate = {"category": "rescue", "description": "Flooded apartment needs boat",
+                 "location": {"coordinates": [90.4, 23.78]},
+                 "created_at": "2999-01-01T00:00:00+00:00"}
+    nearby = {"request_id": "REQ-OLD", "category": "rescue",
+              "description": "Medical supplies needed at clinic",
+              "location": {"coordinates": [90.4001, 23.7801]},
+              "created_at": "2999-01-01T00:00:00+00:00"}
+    assert verification.find_duplicate(candidate, [nearby]) is None
+
+
 def test_verification_conflict_stale_and_provenance_vector():
     primary = {"report_id": "R-1", "source_type": "citizen", "device_id": "D-1",
                "created_at": "2999-01-01T00:00:00+00:00",

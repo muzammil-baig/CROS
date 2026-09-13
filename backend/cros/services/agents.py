@@ -145,7 +145,7 @@ def fallback_synthesis(context: dict) -> SituationSynthesis:
         risks.append(f"Report {s.get('verification_status')} — corroboration required")
     if s.get("route_status") == "DEGRADED_ROUTE":
         risks.append("Only a hazard-exposed route is available")
-    if s.get("eta_seconds", 0) > 1800:
+    if (s.get("eta_seconds") or 0) > 1800:
         risks.append("Travel time exceeds 30 minutes")
     gaps = []
     if not s.get("people_count"):

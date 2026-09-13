@@ -5,14 +5,15 @@ Branch: `v0/crisis-response-os-96e14845`
 
 ## Verdict
 
-**MVP NOT YET READY**
+**MVP REMEDIATION IN PROGRESS**
 
-The deterministic request pipeline, PostgreSQL persistence, offline event/security tests, mesh tests, and isolated simulation lifecycle are operational. The requested end-to-end flood acceptance path did not reach allocation, recommendation, IC approval, or mission execution because the submitted request was deterministically merged as a duplicate before those stages. The PostgreSQL simulator path also records isolated ticks rather than executing the full application pipeline and does not implement the requested A–E connectivity model.
+The duplicate-merge root cause is remediated: deduplication now requires spatial-temporal proximity plus semantic agreement. A fresh PostgreSQL acceptance request completed verification, prioritization, routing, allocation, recommendation, IC approval, and mission creation. The PostgreSQL simulator now executes real prioritization, allocation, and routing services per isolated tick; explicit A–E connectivity harnesses and PostGIS remain open validation work.
 
 ## Validation performed
 
-- Complete backend suite: **53 passed**, 7 warnings.
-- Existing device/event security and mesh coverage executed within the suite, including signed-envelope tamper rejection and mesh relay.
+- Deterministic service suite: **9 passed**.
+- Full backend suite: **54 passed, 7 warnings** on the final rerun; the earlier mesh-relay failure was transient queue contamination and did not reproduce.
+- Existing device/event security coverage includes signed-envelope tamper rejection, RBAC, replay, and mesh relay paths.
 - Resilience simulator API runs completed for: `flood_progression`, `communication_degradation`, `infrastructure_failure`, `resource_shortage`, `misinformation`, and `gateway_failure`.
 - Each PostgreSQL simulation run completed with `production_writes: 0`; observed metrics were `ticks: 2`, `events_generated: 3`, `resilience_score: 1.0`, `unresolved_demand: 0`. These metrics are not sufficient to claim operational resilience because the PostgreSQL runner does not execute the full scenario services.
 
@@ -27,16 +28,16 @@ The deterministic request pipeline, PostgreSQL persistence, offline event/securi
 | Event ID/provenance/HLC/audit | PARTIAL | API response preserved `event_id`, `origin_device_id`, HLC, and verification provenance; one canonical duplicate merge was observed. Full edge-to-gateway audit for this request was not proven. |
 | Verification/situation awareness | PASS | `CORROBORATED`, confidence `0.9`, evidence and uncertainty fields present; LLM provider was unavailable and deterministic fallback was explicit. |
 | Explainable prioritization | PASS | `priority-v2`, score `41.6`, factor breakdown returned. |
-| Routing | NOT REACHED | Duplicate merge terminated the pipeline before routing. |
-| Allocation | NOT REACHED | Duplicate merge terminated the pipeline before allocation. |
-| Recommendation evidence/confidence/alternatives | NOT REACHED | No recommendation ID was produced for the merged duplicate. |
-| Safety/critic | NOT REACHED | No recommendation was produced for this request. |
-| IC approval gate | NOT REACHED | No recommendation was available to approve. |
-| Mission creation after approval | NOT REACHED | No approval or mission was created. |
-| Communication policy | NOT REACHED | No mission dispatch occurred. |
-| Mission lifecycle and audit | NOT REACHED | No mission lifecycle was created for this request. |
+| Routing | PASS | Fresh request produced a deterministic `DEGRADED_ROUTE` with graph ID, ETA, hazard exposure, and route provenance. |
+| Allocation | PASS | Allocation proposal was emitted and included assignment/unassigned evidence. |
+| Recommendation evidence/confidence/alternatives | PASS | Recommendation ID, confidence, evidence references, alternatives, and critic output were persisted. |
+| Safety/critic | PASS | Hard guardrail critic returned caution with explicit `ROUTE_HAZARD_EXPOSURE` and `EVIDENCE_UNCERTAINTY` reason codes. |
+| IC approval gate | PASS | Incident commander approval returned an immutable approval ID. |
+| Mission creation after approval | PASS | Approval returned a mission ID and the outcome endpoint returned the persisted mission. |
+| Communication policy | PARTIAL | Mission creation was proven; dispatch transport/latency still needs a dedicated acceptance assertion. |
+| Mission lifecycle and audit | PARTIAL | Mission projection and approval audit were proven; complete lifecycle progression remains open. |
 
-Observed request outcome: `duplicate_merged`, `duplicate_of=REQ-ECQH301R3PX6VHV0HEJPZZE303`.
+Observed fresh request outcome: `PENDING_APPROVAL` followed by `approved`; `mission_id` was returned after approval. A separate unrelated nearby request was not merged after the semantic dedupe fix.
 
 ## Scenario A–E result
 
@@ -74,7 +75,7 @@ Machine-readable run data is in `docs/mvp-acceptance-results.json`.
 | HITL | B — approval gate exists; acceptance run produced no recommendation |
 | Security | B — covered tests pass; requested complete adversarial matrix incomplete |
 | Audit | B — audit mechanisms and tests exist; request-specific full lifecycle not proven |
-| Simulation | C — isolated runs complete but PostgreSQL runner is tick-only and overstates resilience score |
+| Simulation | B/C — PostgreSQL runs now execute real prioritization/allocation/routing per tick, but A–E connectivity metrics and end-to-end queue behavior remain incomplete |
 | Role workflows | B — RBAC and role tests pass |
 | Resilience behavior | C — partial simulator coverage; A–E operational metrics unavailable |
 
