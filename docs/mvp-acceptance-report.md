@@ -13,7 +13,9 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 
 - Deterministic service suite: **9 passed**.
 - Spatial regression and convergence suite: **20 passed, 1 warning**.
-- Mesh relay suite rerun: **4 passed, 3 warnings**; one full-suite run had a transient relay queue race, so the full suite should be rerun in a clean worker before release sign-off.
+- Geospatial PostgreSQL integration suite: **2 passed**.
+- Mesh relay suite rerun: **4 passed, 3 warnings** after restarting a stale backend worker holding a read-only SQLite connection.
+- Full backend suite: **57 passed, 7 warnings**.
 - Existing device/event security coverage includes signed-envelope tamper rejection, RBAC, replay, and mesh relay paths.
 - Resilience simulator API runs completed for: `flood_progression`, `communication_degradation`, `infrastructure_failure`, `resource_shortage`, `misinformation`, and `gateway_failure`.
 - Each PostgreSQL simulation run completed with `production_writes: 0`; observed metrics were `ticks: 2`, `events_generated: 3`, `resilience_score: 1.0`, `unresolved_demand: 0`. These metrics are not sufficient to claim operational resilience because the PostgreSQL runner does not execute the full scenario services.
@@ -29,7 +31,7 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 | Event ID/provenance/HLC/audit | PARTIAL | API response preserved `event_id`, `origin_device_id`, HLC, and verification provenance; one canonical duplicate merge was observed. Full edge-to-gateway audit for this request was not proven. |
 | Verification/situation awareness | PASS | `CORROBORATED`, confidence `0.9`, evidence and uncertainty fields present; LLM provider was unavailable and deterministic fallback was explicit. |
 | Explainable prioritization | PASS | `priority-v2`, score `41.6`, factor breakdown returned. |
-| Routing | PASS | Fresh request produced a deterministic `DEGRADED_ROUTE` with graph ID, ETA, hazard exposure, and route provenance. |
+| Routing | PASS | Production PostgreSQL mode now prefers PostGIS road segments and active hazard overlays, persists route snapshots with graph/hazard versions, and falls back deterministically when spatial data is unavailable. |
 | Allocation | PASS | Allocation proposal was emitted and included assignment/unassigned evidence. |
 | Recommendation evidence/confidence/alternatives | PASS | Recommendation ID, confidence, evidence references, alternatives, and critic output were persisted. |
 | Safety/critic | PASS | Hard guardrail critic returned caution with explicit `ROUTE_HAZARD_EXPOSURE` and `EVIDENCE_UNCERTAINTY` reason codes. |
@@ -86,7 +88,7 @@ Transport evidence: A=`CONNECTED`, B=`DEGRADED`, C=`MESH_ONLY`, D=`SATELLITE_BAC
 
 **PostGIS enabled and verified.** The connected database reports PostGIS `3.3.7`, `spatial.hazard_area`, `spatial.road_segment`, and `spatial.route_snapshot`, with geometry/geography columns and GiST indexes. An acceptance transaction inserted temporary hazard/road geometries and returned `ST_Intersects=true` and `ST_DWithin=true`; the transaction rolled back without leaving fixture rows.
 
-The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. The remaining production action is application integration: route computation must persist route snapshots, query active hazard overlays, invalidate stale routes, and expose graph/hazard version provenance.
+The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. Production integration is now implemented in the PostgreSQL adapter and operations/projection paths: routes load from `spatial.road_segment`, hazards load from `spatial.hazard_area`, snapshots persist to `spatial.route_snapshot`, and hazard updates invalidate intersecting routes. Deterministic graph fallback remains available for incomplete deployments.
 
 ## Top remaining MVP gaps
 
@@ -99,4 +101,4 @@ The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. The r
 7. Execute and record the full adversarial device/event integrity matrix.
 8. Exercise LLM outage through recommendation/safety/mission continuation, not only verification fallback.
 9. Record degraded-mode and approval-gate evidence in the audit trail for each scenario.
-10. Wire production routing to `spatial.road_segment` and active `spatial.hazard_area` overlays; persist/invalidate `spatial.route_snapshot` records with graph and hazard versions.
+10. Add a clean zero-connectivity edge → mesh → gateway acceptance harness and retain the full adversarial integrity matrix as release evidence.

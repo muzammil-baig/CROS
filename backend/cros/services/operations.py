@@ -24,6 +24,11 @@ PRIORITY_TO_EVENT_PRIORITY = {"critical": Priority.CRITICAL.value, "high": Prior
 
 
 async def get_graph(db) -> dict:
+    if getattr(db, "backend_name", None) == "postgresql":
+        from .. import postgres
+        spatial = await postgres.load_spatial_graph()
+        if spatial:
+            return spatial
     doc = await db.road_graph.find_one({"graph_id": "base-road-graph-v1"}, {"_id": 0})
     if not doc:
         doc = routing.build_base_graph()
@@ -33,6 +38,11 @@ async def get_graph(db) -> dict:
 
 
 async def active_hazards(db) -> list[dict]:
+    if getattr(db, "backend_name", None) == "postgresql":
+        from .. import postgres
+        spatial = await postgres.load_active_spatial_hazards()
+        if spatial:
+            return spatial
     return await db.hazards.find({"active": True}, {"_id": 0}).to_list(500)
 
 
@@ -134,6 +144,9 @@ async def run_pipeline(db, request_id: str, *, actor_id: str | None = None,
         route = routing.compute_route(graph, hazards,
                                      resource["location"]["coordinates"], coords,
                                      "boat" if resource.get("kind") == "boat" else "road")
+        if getattr(db, "backend_name", None) == "postgresql":
+            from .. import postgres
+            route["route_id"] = await postgres.save_route_snapshot(request_id=request_id, route=route)
         steps["route"] = route
 
     with span("pipeline.recommendation", request_id=request_id):
@@ -153,7 +166,7 @@ async def draft_recommendation(db, *, req, assignment, route, hazard_severity, i
     for rid in (req.get("verification") or {}).get("corroborating_report_ids", []):
         evidence_refs.append(f"report:{rid}")
     if route:
-        evidence_refs.append(f"route:{route['graph_id']}")
+        evidence_refs.append(f"route:{route.get('route_id', route['graph_id'])}")
     evidence_summary = {
         "verification_status": (req.get("verification") or {}).get("status"),
         "verification_confidence": (req.get("verification") or {}).get("confidence"),

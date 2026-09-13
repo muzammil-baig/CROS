@@ -70,6 +70,16 @@ def test_priority_malformed_and_verification_vectors_are_bounded():
     assert result["verification_multiplier"] == 0.6
 
 
+def test_routing_emits_graph_and_hazard_freshness_versions():
+    graph = routing.build_base_graph()
+    hazard = {"hazard_id": "HZ-V", "hazard_type": "flood", "severity": 0.4,
+              "version": 7, "geometry": graph["edges"][0]["geometry"]}
+    route = routing.compute_route(graph, [hazard], graph["nodes"][0]["coordinates"],
+                                  graph["nodes"][-1]["coordinates"])
+    assert route["graph_version"] == 1
+    assert route["hazard_version"] == 7
+
+
 def test_routing_hazard_overlay_avoids_blocked_edge():
     graph = routing.build_base_graph()
     edge = graph["edges"][0]

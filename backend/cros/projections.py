@@ -148,8 +148,18 @@ async def on_hazard_reported(db, event):
              "source_provenance": p.get("source_provenance", "citizen_report"),
              "verification": p.get("verification", {"status": "UNVERIFIED", "confidence": 0.4}),
              "active": p.get("active", True),
+             "version": p.get("version", 1),
              **extra,
              **_meta(event)}}, upsert=True)
+    if PERSISTENCE_BACKEND == "postgres" and p.get("geometry"):
+        from . import postgres
+        try:
+            await postgres.upsert_spatial_hazard({**p, "geometry": p["geometry"], "updated_at": event["wall_clock_timestamp"]})
+            await postgres.invalidate_routes_for_hazard(p["hazard_id"], "hazard_overlay_updated")
+        except Exception:
+            # Event application must remain available when a legacy hazard payload
+            # cannot satisfy the spatial schema; the canonical event is preserved.
+            pass
 
 
 # --------------------------------------------------------------- resources

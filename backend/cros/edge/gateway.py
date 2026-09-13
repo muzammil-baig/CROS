@@ -87,8 +87,14 @@ class EdgeNode:
                 pass
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA busy_timeout=5000")
+        self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+        try:
+            os.chmod(self.path, 0o600)
+        except OSError:
+            pass
 
     # ------------------------------------------------------ local event log
     def append_event(self, envelope: dict) -> dict:

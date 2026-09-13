@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5, uuid4
 
+import json
+
 import asyncpg
 
 from .config import POSTGRES_URL_NON_POOLING
@@ -395,6 +397,103 @@ async def upsert_device(*, device_id: str, owner_user_id: str | None, public_key
         )
 
 
+async def spatial_capabilities() -> dict[str, Any]:
+    async with connection() as conn:
+        postgis = await conn.fetchval("select extversion from pg_extension where extname = 'postgis'")
+        tables = await conn.fetch("select table_name from information_schema.tables where table_schema = 'spatial' order by table_name")
+        return {"postgis_version": postgis, "tables": [row["table_name"] for row in tables],
+                "enabled": bool(postgis)}
+
+
+async def load_spatial_graph(graph_id: str = "base-road-graph-v1") -> dict[str, Any] | None:
+    async with connection() as conn:
+        rows = await conn.fetch(
+            """select edge_id, from_node, to_node, road_class, length_m, base_travel_seconds,
+                      ST_AsGeoJSON(geometry)::jsonb as geometry, graph_id, graph_version, updated_at
+               from spatial.road_segment where graph_id = $1 order by edge_id""", graph_id)
+    if not rows:
+        return None
+    node_coords: dict[str, list[float]] = {}
+    edges = []
+    for row in rows:
+        geometry = dict(row["geometry"])
+        coordinates = geometry["coordinates"]
+        node_coords.setdefault(row["from_node"], coordinates[0])
+        node_coords.setdefault(row["to_node"], coordinates[-1])
+        edges.append({"edge_id": row["edge_id"], "from": row["from_node"], "to": row["to_node"],
+                      "road_class": row["road_class"], "length_m": float(row["length_m"]),
+                      "base_travel_seconds": float(row["base_travel_seconds"]),
+                      "geometry": geometry})
+    return {"graph_id": graph_id, "graph_version": max(row["graph_version"] for row in rows),
+            "updated_at": max(row["updated_at"] for row in rows).isoformat(),
+            "nodes": [{"node_id": key, "coordinates": value} for key, value in node_coords.items()],
+            "edges": edges, "source": "postgis"}
+
+
+async def upsert_spatial_hazard(hazard: dict[str, Any]) -> None:
+    async with connection() as conn:
+        await conn.execute(
+            """insert into spatial.hazard_area
+              (hazard_id, hazard_type, severity, water_level_m, road_blocked, active,
+               valid_from, valid_until, geometry, version, updated_at)
+              values ($1, $2, $3, $4, $5, $6, coalesce($7::timestamptz, now()),
+                      $8::timestamptz, ST_GeomFromGeoJSON($9::text), $10, now())
+              on conflict (hazard_id) do update set hazard_type = excluded.hazard_type,
+                severity = excluded.severity, water_level_m = excluded.water_level_m,
+                road_blocked = excluded.road_blocked, active = excluded.active,
+                valid_until = excluded.valid_until, geometry = excluded.geometry,
+                version = excluded.version, updated_at = now()""",
+            hazard["hazard_id"], hazard.get("hazard_type", "generic"),
+            float(hazard.get("severity", 0.5)), hazard.get("water_level_m"),
+            bool(hazard.get("road_blocked", False)), bool(hazard.get("active", True)),
+            hazard.get("valid_from"), hazard.get("valid_until"), json.dumps(hazard["geometry"]),
+            int(hazard.get("version", 1)),
+        )
+
+
+async def load_active_spatial_hazards() -> list[dict[str, Any]]:
+    async with connection() as conn:
+        rows = await conn.fetch(
+            """select hazard_id, hazard_type, severity, water_level_m, road_blocked,
+                      ST_AsGeoJSON(geometry)::jsonb as geometry, version, updated_at
+               from spatial.hazard_area where active = true
+                 and valid_from <= now() and (valid_until is null or valid_until > now())"""
+        )
+    return [{**dict(row), "severity": float(row["severity"]),
+             "geometry": dict(row["geometry"]), "version": int(row["version"]),
+             "updated_at": row["updated_at"].isoformat()} for row in rows]
+
+
+async def save_route_snapshot(*, request_id: str, route: dict[str, Any]) -> str | None:
+    if not route.get("geometry") or not route.get("graph_id"):
+        return None
+    async with connection() as conn:
+        row = await conn.fetchrow(
+            """insert into spatial.route_snapshot
+              (request_id, graph_id, graph_version, hazard_version, origin, destination, route,
+               status, eta_seconds)
+              values ($1, $2, $3, $4, ST_SetSRID(ST_Point($5, $6), 4326)::geography,
+                      ST_SetSRID(ST_Point($7, $8), 4326)::geography,
+                      ST_GeomFromGeoJSON($9::text), $10, $11) returning route_id""",
+            request_id, route["graph_id"], int(route.get("graph_version", 1)),
+            int(route.get("hazard_version", 0)), route["origin"]["coordinates"][0],
+            route["origin"]["coordinates"][1], route["destination"]["coordinates"][0],
+            route["destination"]["coordinates"][1], json.dumps(route["geometry"]),
+            route["status"], route.get("eta_seconds"),
+        )
+    return str(row["route_id"])
+
+
+async def invalidate_routes_for_hazard(hazard_id: str, reason: str) -> int:
+    async with connection() as conn:
+        return await conn.fetchval(
+            """update spatial.route_snapshot r set status = 'INVALIDATED', invalidated_at = now(),
+                      invalidation_reason = $2 where r.status in ('OK', 'DEGRADED_ROUTE')
+                      and exists (select 1 from spatial.hazard_area h
+                                  where h.hazard_id = $1 and ST_Intersects(h.geometry, r.route))
+                      returning count(*) over ()""", hazard_id, reason) or 0
+
+
 async def healthcheck() -> dict[str, str]:
     try:
         await check_connection()
@@ -409,6 +508,9 @@ async def close() -> None:
 
 __all__ = [
     "append_simulation_event", "check_connection", "close", "connection",
+    "invalidate_routes_for_hazard", "load_active_spatial_hazards", "load_spatial_graph",
+    "upsert_spatial_hazard",
+    "save_route_snapshot", "spatial_capabilities",
     "count_entities", "create_simulation_run", "delete_entity", "find_user_by_id",
     "find_user_by_email", "get_simulation_run", "healthcheck", "insert_event",
     "list_entities", "list_simulation_events", "list_simulation_runs", "open_pool",

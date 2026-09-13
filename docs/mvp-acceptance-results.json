@@ -2,7 +2,7 @@
   "date": "2026-09-13",
   "branch": "v0/crisis-response-os-96e14845",
   "verdict": "MVP NOT READY",
-  "tests": {"deterministic_services": {"passed": 9}, "spatial_and_convergence": {"passed": 20, "warnings": 1}, "mesh_relay_rerun": {"passed": 4, "warnings": 3}, "complete_backend": {"status": "REQUIRES_CLEAN_WORKER_RERUN", "observed_failure": "transient mesh relay queue race"}},
+  "tests": {"deterministic_services": {"passed": 10}, "spatial_and_convergence": {"passed": 20, "warnings": 1}, "spatial_postgres": {"passed": 2}, "mesh_relay_rerun": {"passed": 4, "warnings": 3}, "complete_backend": {"passed": 57, "warnings": 7}},
   "simulations": [
     {"scenario": "flood_progression", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 1.077},
     {"scenario": "communication_degradation", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 0.883},
@@ -32,7 +32,7 @@
     "fabricated_response": false,
     "error": "LLM_PROVIDER_UNCONFIGURED"
   },
-  "postgis": {"status": "ENABLED_AND_VERIFIED", "version": "3.3.7", "installed": true, "spatial_schema": "spatial", "tables": ["hazard_area", "road_segment", "route_snapshot"], "geometry_columns_verified": true, "gist_indexes_verified": true, "spatial_query": {"ST_Intersects": true, "ST_DWithin": true, "fixture_rollback": true}, "remaining_action": "Wire production routing, hazard overlays, route snapshots, and invalidation to the spatial schema."},
+  "postgis": {"status": "ENABLED_AND_VERIFIED", "version": "3.3.7", "installed": true, "spatial_schema": "spatial", "tables": ["hazard_area", "road_segment", "route_snapshot"], "geometry_columns_verified": true, "gist_indexes_verified": true, "spatial_query": {"ST_Intersects": true, "ST_DWithin": true, "fixture_rollback": true}, "integration": {"route_source": "spatial.road_segment_with_deterministic_fallback", "hazard_source": "spatial.hazard_area_with_deterministic_fallback", "route_snapshots": "spatial.route_snapshot", "hazard_invalidation": "ST_Intersects"}, "remaining_action": "Add clean zero-connectivity edge-to-mesh acceptance evidence and complete the adversarial integrity matrix."},
   "scenario_A_to_E": {
     "A": {"status": "PASS", "connectivity_state": "CONNECTED"},
     "B": {"status": "PASS", "connectivity_state": "DEGRADED"},
