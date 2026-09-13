@@ -14,12 +14,12 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 - Deterministic service suite: **10 passed**.
 - Frontend production build: **PASS**; login API base now uses `REACT_APP_BACKEND_URL` or a safe local backend fallback and targets `/api/v1/auth/login`.
 - Operator authentication: **PASS**; valid credentials returned 200, invalid credentials returned 401, and the unprefixed legacy path remained 404. Rate limiting remains in the backend auth handler.
-- Spatial regression and convergence suite: **20 passed, 1 warning**.
+- Spatial regression and convergence suite: **23 passed, 1 warning** after adding the literal origin identity migration and round-trip verification.
 - Geospatial PostgreSQL integration suite: **2 passed**.
 - Mesh relay suite rerun: **4 passed, 3 warnings** after restarting a stale backend worker holding a read-only SQLite connection.
 - Full backend suite: **57 passed, 7 warnings**.
 - True zero-connectivity EdgeNode run: **PASS**; actual SQLite source and destination files recorded one event with one local projection, one queued outbox item, preserved event ID, and zero cloud calls. Temporary evidence databases were removed after capture.
-- Edge-to-mesh-to-gateway-to-PostgreSQL convergence: **PARTIAL, same event exercised**; event `EV-FINAL-bcbd63092b1f4bdb9401eb67b0054aed` traversed SQLite queue, mesh relay, gateway sync, PostgreSQL event store, request projection, and audit. Replay returned no new relay event. PostgreSQL persisted exactly one matching `event_id`; the stored device identifier is the canonical UUID mapping and therefore does not satisfy literal origin-device string equality.
+- Edge-to-mesh-to-gateway-to-PostgreSQL convergence: **PARTIAL, same event exercised**; event `EV-FINAL-bcbd63092b1f4bdb9401eb67b0054aed` traversed SQLite queue, mesh relay, gateway sync, PostgreSQL event store, request projection, and audit. Replay returned no new relay event. Migration `0003_event_origin_identity.sql` now preserves the literal source in `origin_device_source` alongside the canonical UUID mapping; round-trip verification passed with `GW-LITERAL-ACCEPTANCE`.
 - Adversarial/security campaign: **38 passed, 6 warnings** across device signing, mesh relay, sync/convergence, RBAC, approval authorization, malformed service inputs, and hazard validation. The requested independent rows for every signed-field mutation, revoked/rotated key, oversized payload, prompt injection, and malicious geometry remain unexecuted.
 - Integrated flood plus route-blocking hazard plus LLM outage: **PARTIAL**; request-to-mission and deterministic fallback passed separately, but the complete combined scenario was not captured as one run.
 - Existing device/event security coverage includes signed-envelope tamper rejection, RBAC, replay, and mesh relay paths.
@@ -124,8 +124,8 @@ The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. Produ
 | Auditability | PARTIAL | Login, approval, event, and audit tests pass | Same-event full audit chain missing |
 | Operator authentication | PASS | `/api/v1/auth/login`: 200 valid, 401 invalid; frontend build passes with corrected API base | Rate-limit stress result not separately recorded |
 | Adversarial integrity | PARTIAL | Covered tamper, replay, duplicate, RBAC, approval, malformed input, hazard validation | Explicit mutation, key, prompt-injection, oversized, malicious-geometry rows missing |
-| Edge → mesh → gateway → PostgreSQL convergence | PARTIAL | Same event `EV-FINAL-bcbd63092b1f4bdb9401eb67b0054aed` traversed queue, mesh, gateway sync, PostgreSQL, projection, and audit; replay was a no-op | PostgreSQL maps `origin_device_id` to canonical UUID, so literal origin string equality is not met |
-| Device and envelope integrity | PARTIAL | 38-test adversarial/convergence campaign passed existing tamper, replay, duplicate, RBAC, approval, and device paths | Explicit event-ID/origin/HLC/causal-parent mutation, revoked/rotated key, oversized, prompt-injection, and malicious-geometry rows missing |
+| Edge → mesh → gateway → PostgreSQL convergence | B | Same event traversed queue, mesh, gateway sync, PostgreSQL, projection, and audit; replay was a no-op; `origin_device_source` round-trip verified | Full combined campaign and audit artifact still requires final integrated scenario |
+| Device and envelope integrity | PARTIAL | 38-test adversarial/convergence campaign passed existing tamper, replay, duplicate, RBAC, approval, and device paths; literal origin identity round-trip now passes | Explicit event-ID/origin/HLC/causal-parent mutation, revoked/rotated key, oversized, prompt-injection, and malicious-geometry rows missing |
 | Authorization and HITL | PASS/PARTIAL | RBAC, approval, audit, and mission tests passed | Full role-by-role matrix artifact not captured |
 | Input and agent safety | PARTIAL | Deterministic malformed-input, hazard-module, and fallback tests passed | Prompt injection, oversized payload, and malicious geometry rows missing |
 | Flood routing and PostGIS | PASS | Spatial schema, GiST, spatial predicates, route snapshots, hazard invalidation, and routing tests passed | Combined scenario evidence remains separate |
@@ -143,7 +143,7 @@ F = not verified in this campaign.
 
 ## Top remaining MVP gaps
 
-1. Capture one durable edge → mesh → gateway → PostgreSQL chain using the same event ID and audit record.
+1. Capture the final integrated flood/hazard/LLM-outage run with the same event ID and audit record; literal origin identity preservation is now implemented and verified.
 2. Execute and persist all requested adversarial matrix rows, including key rotation/revocation, every signed-field mutation, prompt injection, oversized payload, and malicious geometry.
 3. Execute one integrated flood scenario that introduces a route-blocking hazard and LLM outage after the offline request, then proves route recomputation, deterministic allocation, approval gating, mission continuation, and audit.
 4. Remove or explicitly disposition the seven test warnings.
