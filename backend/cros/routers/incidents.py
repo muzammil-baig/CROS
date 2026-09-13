@@ -12,7 +12,7 @@ from ..models import GeoPoint
 from ..services import operations
 from ..services.hazard import get_module, registered_types
 from ..ulid import new_ulid
-from .deps import emit_client_event
+from .deps import default_device, emit_client_event
 
 router = APIRouter(tags=["incidents-hazards"])
 
@@ -80,6 +80,9 @@ class CreateHazardBody(BaseModel):
     debris: bool = False
     road_blocked: bool = False
     incident_id: Optional[str] = None
+    handoff_from_device_id: Optional[str] = Field(default=None, min_length=3, max_length=120)
+    handoff_event_id: Optional[str] = Field(default=None, min_length=3, max_length=120)
+    handoff_reason: Optional[str] = Field(default=None, min_length=3, max_length=500)
 
 
 # ------------------------------------------------------------------ incidents
@@ -196,9 +199,20 @@ async def create_hazard(body: CreateHazardBody,
                        f"Unsupported hazard_type; modules: {registered_types()}",
                        [{"field": "hazard_type", "issue": "no hazard module registered"}])
     module = get_module(body.hazard_type)
+    active_device_id = await default_device(user)
+    if body.handoff_from_device_id and body.handoff_from_device_id == active_device_id:
+        raise ApiError(422, "INVALID_HANDOFF", "Handoff source must differ from the active device")
+    if body.handoff_from_device_id:
+        source_device = await db.devices.find_one({"device_id": body.handoff_from_device_id}, {"_id": 0})
+        if not source_device or not source_device.get("revoked"):
+            raise ApiError(422, "INVALID_HANDOFF", "Handoff source must be a revoked device")
+        if not body.handoff_reason:
+            raise ApiError(422, "INVALID_HANDOFF", "Handoff reason is required")
     payload = body.model_dump()
     payload.update({
         "hazard_id": hazard_id,
+        "origin_device_id": active_device_id,
+        "origin_actor_id": user["user_id"],
         "source_provenance": f"{user['role']}_report",
         "verification": {"status": "VERIFIED" if user["role"] in
                          ("field_responder", "incident_commander", "government_officer")

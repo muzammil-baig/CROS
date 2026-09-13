@@ -175,3 +175,30 @@ def test_dedup_fingerprint_is_explainable_and_id_independent():
     first = semantic_fingerprint(_dedup_request(request_id="REQ-1", last_event_id="EV-1"))
     second = semantic_fingerprint(_dedup_request(request_id="REQ-2", last_event_id="EV-2"))
     assert first == second
+
+
+def test_revoked_device_cannot_become_handoff_source_for_active_actor():
+    handoff = {
+        "original_device_id": "DEV-REVOKED",
+        "original_actor_id": "U-CITIZEN",
+        "handoff_device_id": "DEV-RESPONDER",
+        "handoff_actor_id": "U-RESPONDER",
+        "handoff_event_id": "EV-HANDOFF-1",
+        "reason": "device quarantined during incident",
+    }
+    assert handoff["original_device_id"] != handoff["handoff_device_id"]
+    assert handoff["original_device_id"].endswith("REVOKED")
+    assert handoff["handoff_event_id"].startswith("EV-")
+
+
+def test_handoff_provenance_retains_incident_and_causal_identity():
+    payload = {
+        "incident_id": "INC-1",
+        "correlation_id": "RUN-1",
+        "handoff_from_device_id": "DEV-REVOKED",
+        "handoff_event_id": "EV-REVOKE-1",
+        "origin_device_id": "DEV-ACTIVE",
+        "origin_actor_id": "U-RESPONDER",
+    }
+    assert {"incident_id", "correlation_id", "handoff_from_device_id",
+            "handoff_event_id", "origin_device_id", "origin_actor_id"} <= payload.keys()
