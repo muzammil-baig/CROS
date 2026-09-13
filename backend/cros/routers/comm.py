@@ -53,6 +53,15 @@ class GatewayConfigBody(BaseModel):
     mesh_roster: Optional[list[str]] = None
 
 
+class MissionCommunicationBody(BaseModel):
+    recipient: str = Field(min_length=1, max_length=200)
+    message: str = Field(min_length=1, max_length=2000)
+    priority: str = Field(default="high", pattern="^(critical|high|normal|low)$")
+    incident_id: Optional[str] = None
+    require_ack: bool = True
+    correlation_id: Optional[str] = Field(default=None, max_length=120)
+
+
 # ------------------------------------------------------------------ transports
 @router.get("/comm/transports")
 async def transports(user: dict = Depends(require("comm:read"))):
@@ -115,6 +124,41 @@ async def enqueue_test(user: dict = Depends(require("comm:write"))):
                              priority=Priority.NORMAL.value)
     msg = await communication.enqueue(db, envelope=env)
     return {"message_id": msg["message_id"], "state": msg["state"]}
+
+
+@router.post("/missions/{mission_id}/communications")
+async def send_mission_communication(mission_id: str, body: MissionCommunicationBody,
+                                      user: dict = Depends(require("comm:write"))):
+    """Queue a communication only for an approved and dispatched mission."""
+    mission = await db.missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found("Mission not found")
+    if mission.get("status") != "dispatched":
+        raise ApiError(409, "MISSION_NOT_DISPATCHED",
+                       "Communication requires a dispatched mission")
+    if body.incident_id and body.incident_id != mission.get("incident_id"):
+        raise ApiError(403, "MISSION_SCOPE_MISMATCH",
+                       "Communication incident does not match mission scope")
+    correlation_id = body.correlation_id or mission.get("correlation_id") or mission_id
+    envelope = bus.build_envelope(
+        EventType.MESSAGE_QUEUED.value,
+        {"mission_id": mission_id, "incident_id": mission.get("incident_id"),
+         "emergency_request_id": mission.get("emergency_request_id"),
+         "recipient": body.recipient, "message": body.message,
+         "sender_user_id": user["user_id"], "correlation_id": correlation_id},
+        priority=body.priority, correlation_id=correlation_id,
+        origin_actor_id=user["user_id"])
+    msg = await communication.enqueue(db, envelope=envelope,
+                                      require_ack=body.require_ack)
+    await record(actor_id=user["user_id"], actor_role=user["role"],
+                 action="MISSION_COMMUNICATION_QUEUED", entity_type="mission",
+                 entity_id=mission_id,
+                 detail={"message_id": msg["message_id"], "recipient": body.recipient,
+                         "priority": body.priority, "simulated_transport": True},
+                 immutable=True)
+    return {"mission_id": mission_id, "message_id": msg["message_id"],
+            "state": msg["state"], "correlation_id": correlation_id,
+            "require_ack": body.require_ack}
 
 
 # -------------------------------------------------------------------- gateways
