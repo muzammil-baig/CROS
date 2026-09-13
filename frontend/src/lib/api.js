@@ -1,7 +1,10 @@
 import axios from "axios";
 
-const BASE = process.env.REACT_APP_BACKEND_URL;
-export const API = `${BASE}/api/v1`;
+const BASE = process.env.REACT_APP_BACKEND_URL ||
+  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8011"
+    : window.location.origin);
+export const API = `${BASE.replace(/\/$/, "")}/api/v1`;
 
 export const api = axios.create({ baseURL: API, withCredentials: true, timeout: 60000 });
 

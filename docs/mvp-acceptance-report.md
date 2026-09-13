@@ -11,7 +11,9 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 
 ## Validation performed
 
-- Deterministic service suite: **9 passed**.
+- Deterministic service suite: **10 passed**.
+- Frontend production build: **PASS**; login API base now uses `REACT_APP_BACKEND_URL` or a safe local backend fallback and targets `/api/v1/auth/login`.
+- Operator authentication: **PASS**; valid credentials returned 200, invalid credentials returned 401, and the unprefixed legacy path remained 404. Rate limiting remains in the backend auth handler.
 - Spatial regression and convergence suite: **20 passed, 1 warning**.
 - Geospatial PostgreSQL integration suite: **2 passed**.
 - Mesh relay suite rerun: **4 passed, 3 warnings** after restarting a stale backend worker holding a read-only SQLite connection.
@@ -98,7 +100,30 @@ The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. Produ
 
 | Capability | Result | Evidence | Blocker |
 |---|---|---|---|
-| Zero-connectivity edge acknowledgement | PASS | Real `EdgeNode` SQLite run: local event, projection, queued outbox, preserved event ID, `cloud_calls=0` | None for local acknowledgement |
+| Zero-connectivity operation | PASS | Real `EdgeNode` SQLite run: local event, projection, queued outbox, preserved event ID, `cloud_calls=0` | None for local acknowledgement |
+| Local SQLite persistence | PASS | Source and destination EdgeNode SQLite stores persisted and replayed the event | One combined durable-store artifact remains |
+| Mesh relay | PASS | `TestMeshRelay` and full suite passed; 4 focused relay tests | Same-event campaign artifact remains |
+| Gateway reconciliation | PARTIAL | Existing sync/relay paths pass | Same offline event not traced into gateway and PostgreSQL in one run |
+| PostgreSQL convergence | PARTIAL | PostgreSQL backend and spatial acceptance suites pass | Canonical event/audit proof for the offline event missing |
+| Event integrity | PARTIAL | Signed envelope tamper, replay, duplicate, and device coverage pass | Full mutation/key-rotation matrix missing |
+| Projection correctness | PASS | Full backend suite and convergence tests pass | None in executed suites |
+| Routing | PASS | PostGIS route loading with deterministic fallback and route snapshots | Combined hazard scenario evidence missing |
+| Hazard detection | PASS | PostGIS spatial predicates and hazard tests pass | Combined flood run missing |
+| Route invalidation | PASS | `ST_Intersects` invalidation path implemented and spatial tests pass | Same-run evidence missing |
+| Route recomputation | PARTIAL | Route freshness metadata and fallback routing pass | Blocking-hazard recompute not captured in integrated run |
+| Prioritization | PASS | Deterministic priority-v2 tests and API evidence | None |
+| Allocation | PASS | Allocation proposal tests and API evidence | Same integrated run missing |
+| Communication selection | PARTIAL | Transport state and communication tests pass | Mission dispatch assertion missing |
+| Verification | PASS | Explicit deterministic fallback and verification projection pass | Combined outage run missing |
+| Situation Awareness | PARTIAL | Projection and evidence fields pass | Full campaign artifact missing |
+| Safety/Critic | PASS | Guardrail critic reason-code tests pass | Combined campaign missing |
+| HITL approval | PASS | Immutable approval and authorization tests pass | Full role matrix artifact missing |
+| Mission lifecycle | PARTIAL | Mission creation and lifecycle tests pass | Full offline-to-mission chain missing |
+| LLM outage/degraded mode | PASS | Deterministic fallback, no fabricated output, full suite pass | Combined route-to-mission outage run missing |
+| Simulation isolation | PASS | Six PostgreSQL simulation runs recorded `production_writes: 0` | Operational metrics remain limited |
+| Auditability | PARTIAL | Login, approval, event, and audit tests pass | Same-event full audit chain missing |
+| Operator authentication | PASS | `/api/v1/auth/login`: 200 valid, 401 invalid; frontend build passes with corrected API base | Rate-limit stress result not separately recorded |
+| Adversarial integrity | PARTIAL | Covered tamper, replay, duplicate, RBAC, approval, malformed input, hazard validation | Explicit mutation, key, prompt-injection, oversized, malicious-geometry rows missing |
 | Edge → mesh → gateway → PostgreSQL convergence | PARTIAL | `TestMeshRelay`, `test_sync_convergence.py`, and full suite passed | No single captured artifact chain for the same offline event across all stores |
 | Device and envelope integrity | PARTIAL | Signed envelope tamper/quarantine, replay/idempotency, and device tests passed | Explicit event-ID/origin/HLC/causal-parent mutation rows missing |
 | Authorization and HITL | PASS/PARTIAL | RBAC, approval, audit, and mission tests passed | Full role-by-role matrix artifact not captured |
