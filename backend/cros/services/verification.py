@@ -122,20 +122,52 @@ def _tokens(value: object) -> set[str]:
             if len(token) > 2}
 
 
+def semantic_fingerprint(request: dict) -> tuple:
+    """Stable business identity for semantic dedupe, excluding event/request IDs."""
+    location = request.get("location") or {}
+    coords = location.get("coordinates") or []
+    rounded_coords = tuple(round(float(value), 5) for value in coords[:2])
+    return (
+        request.get("reporter_user_id") or request.get("origin_actor_id"),
+        request.get("origin_device_id") or request.get("device_id"),
+        request.get("category"),
+        " ".join(sorted(_tokens(request.get("description")))),
+        int(request.get("people_count") or 0),
+        bool(request.get("water_rising")),
+        rounded_coords,
+    )
+
+
 def _same_event(candidate: dict, existing: dict) -> bool:
-    """Require corroborating event semantics, not just category and proximity."""
-    candidate_text = _tokens(candidate.get("description"))
-    existing_text = _tokens(existing.get("description"))
-    if candidate.get("reporter_user_id") and candidate.get("reporter_user_id") == existing.get("reporter_user_id"):
-        return True
-    if not candidate_text or not existing_text:
+    """Match only the same source/device and materially identical emergency claim."""
+    candidate_source = candidate.get("reporter_user_id") or candidate.get("origin_actor_id")
+    existing_source = existing.get("reporter_user_id") or existing.get("origin_actor_id")
+    candidate_device = candidate.get("origin_device_id") or candidate.get("device_id")
+    existing_device = existing.get("origin_device_id") or existing.get("device_id")
+    if not candidate_source or candidate_source != existing_source:
         return False
-    overlap = len(candidate_text & existing_text) / max(1, min(len(candidate_text), len(existing_text)))
-    return overlap >= 0.35
+    if candidate_device and existing_device and candidate_device != existing_device:
+        return False
+    return semantic_fingerprint(candidate) == semantic_fingerprint(existing)
+
+
+def classify_duplicate(candidate: dict, existing: list[dict]) -> dict:
+    """Return an explainable duplicate decision without mutating domain state."""
+    candidate_fp = semantic_fingerprint(candidate)
+    for item in existing:
+        if _age(item.get("created_at", "")) > DEDUPE_WINDOW_SECONDS:
+            continue
+        if _same_event(candidate, item):
+            return {"classification": "DUPLICATE", "reason": "same_source_device_and_semantic_fingerprint",
+                    "fingerprint": candidate_fp, "matched_request_id": item.get("request_id"),
+                    "matched_event_id": item.get("last_event_id"), "window_seconds": DEDUPE_WINDOW_SECONDS}
+    return {"classification": "NOT_DUPLICATE", "reason": "no_same_source_device_semantic_match",
+            "fingerprint": candidate_fp, "matched_request_id": None, "matched_event_id": None,
+            "window_seconds": DEDUPE_WINDOW_SECONDS}
 
 
 def find_duplicate(candidate: dict, existing: list[dict]) -> dict | None:
-    """Spatio-temporal dedupe with semantic agreement and provenance retention."""
+    """Spatio-temporal dedupe with exact source/device semantic identity."""
     coords = (candidate.get("location") or {}).get("coordinates")
     if not coords:
         return None

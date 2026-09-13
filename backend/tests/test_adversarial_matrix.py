@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from cros.crypto import verify
 from cros.models import EventEnvelope
+from cros.services.verification import classify_duplicate, find_duplicate, semantic_fingerprint
 
 SIGNED_FIELDS = [
     "event_id", "event_type", "schema_version", "origin_device_id",
@@ -114,3 +115,63 @@ def test_unknown_envelope_fields_are_rejected_without_state_mutation():
     envelope["admin_override"] = True
     with pytest.raises(ValidationError):
         EventEnvelope.model_validate(envelope)
+
+
+def _dedup_request(**overrides):
+    request = {
+        "request_id": "REQ-A",
+        "last_event_id": "EV-A",
+        "reporter_user_id": "USER-A",
+        "origin_device_id": "DEV-A",
+        "category": "rescue",
+        "description": "flood rescue at bridge",
+        "people_count": 3,
+        "water_rising": True,
+        "location": {"type": "Point", "coordinates": [90.4, 23.78]},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return {**request, **overrides}
+
+
+def test_dedup_exact_same_event_replay_is_duplicate():
+    candidate = _dedup_request()
+    assert classify_duplicate(candidate, [candidate])["classification"] == "DUPLICATE"
+    assert find_duplicate(candidate, [candidate])["request_id"] == "REQ-A"
+
+
+def test_dedup_same_event_retransmission_is_duplicate():
+    candidate = _dedup_request()
+    retransmission = {**candidate, "event_id": "EV-A"}
+    result = classify_duplicate(retransmission, [candidate])
+    assert result["classification"] == "DUPLICATE"
+    assert result["reason"] == "same_source_device_and_semantic_fingerprint"
+
+
+def test_dedup_same_payload_new_event_follows_business_duplicate_semantics():
+    candidate = _dedup_request(event_id="EV-B", request_id="REQ-B")
+    result = classify_duplicate(candidate, [_dedup_request()])
+    assert result["classification"] == "DUPLICATE"
+    assert result["matched_event_id"] == "EV-A"
+
+
+def test_dedup_similar_text_different_citizen_is_not_duplicate():
+    candidate = _dedup_request(reporter_user_id="USER-B", origin_device_id="DEV-B")
+    result = classify_duplicate(candidate, [_dedup_request()])
+    assert result["classification"] == "NOT_DUPLICATE"
+    assert find_duplicate(candidate, [_dedup_request()]) is None
+
+
+def test_dedup_meaningful_state_change_is_not_duplicate():
+    candidate = _dedup_request(people_count=8, water_rising=False, description="flood rescue at bridge now trapped")
+    assert classify_duplicate(candidate, [_dedup_request()])["classification"] == "NOT_DUPLICATE"
+
+
+def test_dedup_stale_duplicate_is_not_duplicate():
+    stale = _dedup_request(created_at="2020-01-01T00:00:00+00:00")
+    assert classify_duplicate(_dedup_request(), [stale])["classification"] == "NOT_DUPLICATE"
+
+
+def test_dedup_fingerprint_is_explainable_and_id_independent():
+    first = semantic_fingerprint(_dedup_request(request_id="REQ-1", last_event_id="EV-1"))
+    second = semantic_fingerprint(_dedup_request(request_id="REQ-2", last_event_id="EV-2"))
+    assert first == second
