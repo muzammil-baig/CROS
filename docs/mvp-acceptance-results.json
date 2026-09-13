@@ -2,7 +2,7 @@
   "date": "2026-09-13",
   "branch": "v0/crisis-response-os-96e14845",
   "verdict": "MVP NOT READY",
-  "tests": {"deterministic_services": {"passed": 9}, "complete_backend": {"passed": 54, "warnings": 7}, "mesh_relay_rerun": {"passed": 4}},
+  "tests": {"deterministic_services": {"passed": 9}, "spatial_and_convergence": {"passed": 20, "warnings": 1}, "mesh_relay_rerun": {"passed": 4, "warnings": 3}, "complete_backend": {"status": "REQUIRES_CLEAN_WORKER_RERUN", "observed_failure": "transient mesh relay queue race"}},
   "simulations": [
     {"scenario": "flood_progression", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 1.077},
     {"scenario": "communication_degradation", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 0.883},
@@ -32,7 +32,7 @@
     "fabricated_response": false,
     "error": "LLM_PROVIDER_UNCONFIGURED"
   },
-  "postgis": {"status": "EXTERNAL_PREREQUISITE_BLOCKER", "installed": false, "psql_client": false, "python_driver": false, "required_action": "Enable PostGIS in Supabase; verify geometry/geography columns, GiST indexes, ST_Intersects/ST_DWithin queries, hazard overlay, and route invalidation."},
+  "postgis": {"status": "ENABLED_AND_VERIFIED", "version": "3.3.7", "installed": true, "spatial_schema": "spatial", "tables": ["hazard_area", "road_segment", "route_snapshot"], "geometry_columns_verified": true, "gist_indexes_verified": true, "spatial_query": {"ST_Intersects": true, "ST_DWithin": true, "fixture_rollback": true}, "remaining_action": "Wire production routing, hazard overlays, route snapshots, and invalidation to the spatial schema."},
   "scenario_A_to_E": {
     "A": {"status": "PASS", "connectivity_state": "CONNECTED"},
     "B": {"status": "PASS", "connectivity_state": "DEGRADED"},

@@ -5,14 +5,15 @@ Branch: `v0/crisis-response-os-96e14845`
 
 ## Verdict
 
-**MVP NOT READY**
+**MVP NOT READY — geospatial blocker cleared, route integration remains**
 
-Core PostgreSQL request-to-mission behavior, transport state transitions, mesh relay, sync/idempotency, security controls, and deterministic LLM fallback are verified. The remaining blocker is geospatial production acceptance: PostGIS is not available in the connected database, so geometry columns, GiST indexes, spatial queries, hazard overlays, and route invalidation cannot be proven.
+Core PostgreSQL request-to-mission behavior, transport state transitions, mesh relay, sync/idempotency, security controls, and deterministic LLM fallback are verified. PostGIS is now enabled and the private spatial schema is deployed and acceptance-tested. The remaining gap is wiring production routing and hazard invalidation to these spatial tables rather than only the deterministic fallback graph.
 
 ## Validation performed
 
 - Deterministic service suite: **9 passed**.
-- Full backend suite: **54 passed, 7 warnings** on the final rerun; the earlier mesh-relay failure was transient queue contamination and did not reproduce.
+- Spatial regression and convergence suite: **20 passed, 1 warning**.
+- Mesh relay suite rerun: **4 passed, 3 warnings**; one full-suite run had a transient relay queue race, so the full suite should be rerun in a clean worker before release sign-off.
 - Existing device/event security coverage includes signed-envelope tamper rejection, RBAC, replay, and mesh relay paths.
 - Resilience simulator API runs completed for: `flood_progression`, `communication_degradation`, `infrastructure_failure`, `resource_shortage`, `misinformation`, and `gateway_failure`.
 - Each PostgreSQL simulation run completed with `production_writes: 0`; observed metrics were `ticks: 2`, `events_generated: 3`, `resilience_score: 1.0`, `unresolved_demand: 0`. These metrics are not sufficient to claim operational resilience because the PostgreSQL runner does not execute the full scenario services.
@@ -66,7 +67,7 @@ Transport evidence: A=`CONNECTED`, B=`DEGRADED`, C=`MESH_ONLY`, D=`SATELLITE_BAC
 | Capability | Status |
 |---|---|
 | Core domain | B — implemented and tested for request/pipeline slices |
-| Geospatial | C — deterministic fallback routing verified; PostGIS geometry/GiST acceptance blocked |
+| Geospatial | B — PostGIS schema, GiST indexes, ST_Intersects, and ST_DWithin verified; production route integration remains |
 | Prioritization | A — deterministic v2 with factor breakdown |
 | Allocation | B — implemented, not reached in the acceptance request |
 | Communication fabric | B — A–E live transport states and mesh relay pass; satellite/radio/SMS are simulator-backed |
@@ -83,9 +84,9 @@ Transport evidence: A=`CONNECTED`, B=`DEGRADED`, C=`MESH_ONLY`, D=`SATELLITE_BAC
 
 ## PostGIS
 
-**External prerequisite / BLOCKER.** PostGIS could not be queried from this runner: the environment has no `psql` client and no installed Python PostgreSQL driver, while the connected application schema exposes no verified geometry/GiST acceptance evidence. No fake extension, geometry column, spatial function, or GiST claim was made.
+**PostGIS enabled and verified.** The connected database reports PostGIS `3.3.7`, `spatial.hazard_area`, `spatial.road_segment`, and `spatial.route_snapshot`, with geometry/geography columns and GiST indexes. An acceptance transaction inserted temporary hazard/road geometries and returned `ST_Intersects=true` and `ST_DWithin=true`; the transaction rolled back without leaving fixture rows.
 
-Exact external Supabase action required: enable the PostGIS extension in the project database, then create/verify geometry or geography columns for request locations and hazard areas, add GiST indexes, and run `ST_Intersects`/`ST_DWithin` spatial and hazard-overlay queries. Until those checks pass, routing must remain on the deterministic fallback graph and the geospatial MVP gate remains blocked.
+The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. The remaining production action is application integration: route computation must persist route snapshots, query active hazard overlays, invalidate stale routes, and expose graph/hazard version provenance.
 
 ## Top remaining MVP gaps
 
@@ -98,4 +99,4 @@ Exact external Supabase action required: enable the PostGIS extension in the pro
 7. Execute and record the full adversarial device/event integrity matrix.
 8. Exercise LLM outage through recommendation/safety/mission continuation, not only verification fallback.
 9. Record degraded-mode and approval-gate evidence in the audit trail for each scenario.
-10. Enable PostGIS externally, then verify geometry columns, GiST indexes, and a real spatial query.
+10. Wire production routing to `spatial.road_segment` and active `spatial.hazard_area` overlays; persist/invalidate `spatial.route_snapshot` records with graph and hazard versions.
