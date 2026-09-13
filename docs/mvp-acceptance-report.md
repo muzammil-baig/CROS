@@ -149,11 +149,11 @@ The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. Produ
 | Adversarial integrity | PARTIAL | Covered tamper, replay, duplicate, RBAC, approval, malformed input, hazard validation | Explicit mutation, key, prompt-injection, oversized, malicious-geometry rows missing |
 | Edge → mesh → gateway → PostgreSQL convergence | B | Same event traversed queue, mesh, gateway sync, PostgreSQL, projection, and audit; replay was a no-op; `origin_device_source` round-trip verified | Full combined campaign and audit artifact still requires final integrated scenario |
 | Device and envelope integrity | B | 48 adversarial/convergence checks pass; live quarantine returned 422 `DEVICE_REVOKED` after revoke and did not persist the request | Production full-campaign artifact still needs direct capture |
-| Authorization and HITL | PASS/PARTIAL | RBAC, approval, audit, and mission tests passed | Full role-by-role matrix artifact not captured |
+| Authorization and HITL | PASS/PARTIAL | Real API approval `200` persisted immutable approval `01M2E171WPSK87HNQN5595Q0MW`; mission was created only after approval and dispatched with `200` | Latest run lacked the required safe-route hazard fixture; unauthorized comm write correctly returned 403 |
 | Input and agent safety | B | Explicit prompt-injection-as-data, oversized boundary, malformed geometry, and unknown-field tests pass; live hazard API rejected all four hostile geometry payloads with 422; no authority is derived from report text | Full safety audit artifact remains incomplete |
 | Flood routing and PostGIS | PASS | Spatial schema, GiST, spatial predicates, route snapshots, hazard invalidation, and routing tests passed | Combined scenario evidence remains separate |
-| LLM outage continuity | PASS/PARTIAL | Explicit deterministic fallback with no fabricated response; full suite passed | Combined outage-to-approved-mission run not captured |
-| Full backend regression | PASS | `57 passed, 7 warnings` | Warnings remain |
+| LLM outage continuity | PASS/PARTIAL | Same run `RUN-HITL-bc936c75dd1e45a083b62b0e339f3327` used deterministic fallback through recommendation, approval, mission creation, and dispatch | Required same-run blocking hazard plus dispatch campaign not captured |
+| Full backend regression | BLOCKED | Latest complete attempt reached 45 passed before 14 mesh/device setup errors from gateway login 429 | Auth rate-limit window must reset before a clean full count |
 
 ## Remaining issue classification
 
