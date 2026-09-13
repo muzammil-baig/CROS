@@ -115,6 +115,15 @@ Transport evidence: A=`CONNECTED`, B=`DEGRADED`, C=`MESH_ONLY`, D=`SATELLITE_BAC
 
 The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. Production integration is now implemented in the PostgreSQL adapter and operations/projection paths: routes load from `spatial.road_segment`, hazards load from `spatial.hazard_area`, snapshots persist to `spatial.route_snapshot`, and hazard updates invalidate intersecting routes. Deterministic graph fallback remains available for incomplete deployments.
 
+## Revocation handoff remediation
+
+- Root cause: the campaign reused the revoked commander's `DEV-{user_id}` signing identity after the revocation event; the event bus correctly rejected the hazard as `DEVICE_REVOKED`.
+- Fix: hazard creation now resolves and validates the active caller device before emitting, rejects self-handoffs, requires a revoked handoff source plus a reason, and persists original device, handoff event/reason, incident, active actor, and active device provenance in the signed hazard payload.
+- Regression evidence: adversarial matrix **19 passed**; revoked-device enforcement remains in the event bus and active caller resolution.
+- Continuous campaign status: **NOT RUN / NOT READY**. No new single-run hazard-to-audit campaign was captured after this code change, so no READY claim is made.
+- Latest implementation commit: `2583051`.
+- Working tree was clean immediately before this evidence update; final post-commit status must be rechecked before acceptance.
+
 ## Warning disposition
 
 - Starlette `multipart` pending deprecation: dependency-level and harmless for current behavior; retain until the framework migration is available.
