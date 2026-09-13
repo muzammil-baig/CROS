@@ -356,7 +356,7 @@ def _device_uuid(device_id: str) -> UUID:
 async def find_device(device_id: str) -> dict[str, Any] | None:
     async with connection() as conn:
         row = await conn.fetchrow(
-            "select id, owner_user_id, public_key, device_class, trust_score, revoked_at from core.device where id = $1",
+            "select id, owner_user_id, public_key, device_class, trust_score, revoked_at, revocation_reason from core.device where id = $1",
             _device_uuid(device_id),
         )
     if not row:
@@ -366,7 +366,27 @@ async def find_device(device_id: str) -> dict[str, Any] | None:
     result["signing_mode"] = "server_keystore"
     result["trust_level"] = "trusted" if float(result.get("trust_score") or 0) >= 0.8 else "provisional"
     result["revoked"] = result.get("revoked_at") is not None
+    if result.get("revoked_at"):
+        result["revoked_at"] = result["revoked_at"].isoformat()
     return result
+
+
+async def list_devices() -> list[dict[str, Any]]:
+    async with connection() as conn:
+        rows = await conn.fetch("select id, owner_user_id, public_key, device_class, trust_score, revoked_at, revocation_reason from core.device order by created_at desc")
+    devices = []
+    for row in rows:
+        item = dict(row)
+        database_id = item.pop("id")
+        item["owner_user_id"] = str(item["owner_user_id"]) if item.get("owner_user_id") else None
+        item["device_id"] = f"DEV-{item['owner_user_id']}" if item.get("owner_user_id") else str(database_id)
+        item["signing_mode"] = "server_keystore"
+        item["trust_level"] = "trusted" if float(item.get("trust_score") or 0) >= 0.8 else "provisional"
+        item["revoked"] = item.get("revoked_at") is not None
+        if item.get("revoked_at"):
+            item["revoked_at"] = item["revoked_at"].isoformat()
+        devices.append(item)
+    return devices
 
 
 async def revoke_device(device_id: str, reason: str | None) -> None:
