@@ -1,0 +1,42 @@
+{
+  "date": "2026-09-13",
+  "branch": "v0/crisis-response-os-96e14845",
+  "verdict": "MVP NOT YET READY",
+  "tests": {"complete_backend": {"passed": 53, "warnings": 7}},
+  "simulations": [
+    {"scenario": "flood_progression", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 1.077},
+    {"scenario": "communication_degradation", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 0.883},
+    {"scenario": "infrastructure_failure", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 0.836},
+    {"scenario": "resource_shortage", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 0.836},
+    {"scenario": "misinformation", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 0.835},
+    {"scenario": "gateway_failure", "status": "completed", "ticks": 2, "events_generated": 3, "production_writes": 0, "resilience_score": 1.0, "latency_seconds": 0.838}
+  ],
+  "flood_acceptance": {
+    "request_status": 201,
+    "event_status": "applied",
+    "outcome": "MERGED_AS_DUPLICATE",
+    "verification": "CORROBORATED",
+    "verification_confidence": 0.9,
+    "priority_score": 41.6,
+    "priority_version": "priority-v2",
+    "recommendation": "NOT_REACHED",
+    "approval": "NOT_REACHED",
+    "mission": "NOT_REACHED"
+  },
+  "llm_failure": {
+    "status": "deterministic_fallback_active",
+    "provider": "deterministic_fallback",
+    "model": "rule_based_v1",
+    "fallback_used": true,
+    "fabricated_response": false,
+    "error": "LLM_PROVIDER_UNCONFIGURED"
+  },
+  "postgis": {"status": "EXTERNAL_PREREQUISITE", "installed": false},
+  "scenario_A_to_E": {
+    "A": "BLOCKED",
+    "B": "PARTIAL",
+    "C": "BLOCKED",
+    "D": "BLOCKED",
+    "E": "PARTIAL_BLOCKED"
+  }
+}

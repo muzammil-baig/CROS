@@ -1,0 +1,96 @@
+# CROS Flood-Response MVP Acceptance Report
+
+Date: 2026-09-13
+Branch: `v0/crisis-response-os-96e14845`
+
+## Verdict
+
+**MVP NOT YET READY**
+
+The deterministic request pipeline, PostgreSQL persistence, offline event/security tests, mesh tests, and isolated simulation lifecycle are operational. The requested end-to-end flood acceptance path did not reach allocation, recommendation, IC approval, or mission execution because the submitted request was deterministically merged as a duplicate before those stages. The PostgreSQL simulator path also records isolated ticks rather than executing the full application pipeline and does not implement the requested A–E connectivity model.
+
+## Validation performed
+
+- Complete backend suite: **53 passed**, 7 warnings.
+- Existing device/event security and mesh coverage executed within the suite, including signed-envelope tamper rejection and mesh relay.
+- Resilience simulator API runs completed for: `flood_progression`, `communication_degradation`, `infrastructure_failure`, `resource_shortage`, `misinformation`, and `gateway_failure`.
+- Each PostgreSQL simulation run completed with `production_writes: 0`; observed metrics were `ticks: 2`, `events_generated: 3`, `resilience_score: 1.0`, `unresolved_demand: 0`. These metrics are not sufficient to claim operational resilience because the PostgreSQL runner does not execute the full scenario services.
+
+## Flood acceptance stage results
+
+| Stage | Result | Evidence |
+|---|---|---|
+| Citizen request creation | PASS | `POST /requests` returned 201 and an event ID. |
+| Local edge persistence with zero connectivity | NOT PROVEN | Existing HTTP acceptance tests cover signed device sync; no live zero-connectivity-to-mesh harness was run. |
+| Bluetooth/mesh relay without cloud | PASS (focused test) | Existing `TestMeshRelay` passes; this was not the same request used in the API acceptance run. |
+| Gateway reconciliation into canonical PostgreSQL | PASS (focused sync/mesh tests) | Sync/convergence and mesh tests pass; request run itself used the cloud request endpoint. |
+| Event ID/provenance/HLC/audit | PARTIAL | API response preserved `event_id`, `origin_device_id`, HLC, and verification provenance; one canonical duplicate merge was observed. Full edge-to-gateway audit for this request was not proven. |
+| Verification/situation awareness | PASS | `CORROBORATED`, confidence `0.9`, evidence and uncertainty fields present; LLM provider was unavailable and deterministic fallback was explicit. |
+| Explainable prioritization | PASS | `priority-v2`, score `41.6`, factor breakdown returned. |
+| Routing | NOT REACHED | Duplicate merge terminated the pipeline before routing. |
+| Allocation | NOT REACHED | Duplicate merge terminated the pipeline before allocation. |
+| Recommendation evidence/confidence/alternatives | NOT REACHED | No recommendation ID was produced for the merged duplicate. |
+| Safety/critic | NOT REACHED | No recommendation was produced for this request. |
+| IC approval gate | NOT REACHED | No recommendation was available to approve. |
+| Mission creation after approval | NOT REACHED | No approval or mission was created. |
+| Communication policy | NOT REACHED | No mission dispatch occurred. |
+| Mission lifecycle and audit | NOT REACHED | No mission lifecycle was created for this request. |
+
+Observed request outcome: `duplicate_merged`, `duplicate_of=REQ-ECQH301R3PX6VHV0HEJPZZE303`.
+
+## Scenario A–E result
+
+| Scenario | Result | Reason |
+|---|---|---|
+| A Normal connectivity | BLOCKED | No named A–E scenario exists; nearest `communication_degradation` run completed isolated ticks only. |
+| B Degraded connectivity | PARTIAL | `communication_degradation` completed, but PostgreSQL runner emitted only tick events and did not exercise communication flush/transport metrics. |
+| C Internet unavailable | BLOCKED | No explicit internet-unavailable scenario in the PostgreSQL simulator path. |
+| D Internet + cellular unavailable, satellite gateway available | BLOCKED | No explicit satellite-gateway acceptance path; satellite is represented as simulated transport only. |
+| E Fragmented network + gateway failure | PARTIAL/BLOCKED | `gateway_failure` completed isolated ticks, but PostgreSQL path did not execute queue drain, convergence, or delivery metrics. |
+
+Machine-readable run data is in `docs/mvp-acceptance-results.json`.
+
+## LLM failure result
+
+**PASS for core fallback, NOT PASS for full acceptance.** The live request returned `provider: deterministic_fallback`, `model: rule_based_v1`, `fallback_used: true`, `error: LLM_PROVIDER_UNCONFIGURED`, and still produced verification and priority output. No fabricated LLM response was generated. Because the request was duplicate-merged, routing/allocation/mission continuation under LLM failure was not exercised in this run.
+
+## Security and integrity result
+
+**PASS for existing covered controls; incomplete for the requested matrix.** The complete suite passed signed envelope validation, modified-payload rejection/quarantine behavior, RBAC denials, authorization checks, duplicate sync behavior, and audit endpoint coverage. The requested explicit matrix for modified event ID, origin identity, HLC, replay, revoked/rotated keys, malicious geometry, oversized input, and prompt injection was not independently executed as a complete acceptance campaign.
+
+## Final capability matrix
+
+| Capability | Status |
+|---|---|
+| Core domain | B — implemented and tested for request/pipeline slices |
+| Geospatial | C — routing exists; PostGIS geometry/GiST remains external |
+| Prioritization | A — deterministic v2 with factor breakdown |
+| Allocation | B — implemented, not reached in the acceptance request |
+| Communication fabric | B — transport policy and mesh tests pass; A–E metrics incomplete |
+| Offline edge | B — signed sync and local edge components exist; live zero-connectivity scenario incomplete |
+| Mesh/gateway | B — focused relay test passes |
+| Sync/convergence | B — focused convergence tests pass |
+| AI agents | C — deterministic fallback exists; provider-outage full workflow not proven |
+| HITL | B — approval gate exists; acceptance run produced no recommendation |
+| Security | B — covered tests pass; requested complete adversarial matrix incomplete |
+| Audit | B — audit mechanisms and tests exist; request-specific full lifecycle not proven |
+| Simulation | C — isolated runs complete but PostgreSQL runner is tick-only and overstates resilience score |
+| Role workflows | B — RBAC and role tests pass |
+| Resilience behavior | C — partial simulator coverage; A–E operational metrics unavailable |
+
+## PostGIS
+
+**External prerequisite.** PostGIS is not enabled in the connected environment. No fake extension, geometry column, or GiST claim was made.
+
+## Top remaining MVP gaps
+
+1. Add a real zero-connectivity edge → mesh → gateway acceptance harness using the actual event log and sync endpoints.
+2. Prevent legitimate new emergency requests from being incorrectly merged as duplicates, or make duplicate evidence and merge policy explicit and testable.
+3. Add a deterministic acceptance fixture that guarantees a non-duplicate request reaches routing, allocation, recommendation, approval, and mission execution.
+4. Implement explicit A–E connectivity scenario definitions and machine-readable metrics.
+5. Make the PostgreSQL simulator execute real isolated services rather than tick-only bookkeeping.
+6. Compute delivery latency, convergence time, duplicate rate, conflict rate, response time, and resource utilization from simulation records.
+7. Execute and record the full adversarial device/event integrity matrix.
+8. Exercise LLM outage through recommendation/safety/mission continuation, not only verification fallback.
+9. Record degraded-mode and approval-gate evidence in the audit trail for each scenario.
+10. Enable PostGIS externally, then verify geometry columns, GiST indexes, and a real spatial query.
