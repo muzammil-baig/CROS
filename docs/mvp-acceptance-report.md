@@ -5,7 +5,9 @@ Branch: `v0/crisis-response-os-96e14845`
 
 ## Verdict
 
-**MVP NOT READY — evidence gaps remain**
+**MVP NOT READY — integrated run failed before hazard-to-dispatch continuation**
+
+The direct run `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` proves request acceptance, deterministic fallback, verification, and prioritization, but it does not prove the required same-run chain through hazard detection, route invalidation/recomputation, allocation, HITL, mission, communication, dispatch, and audit.
 
 Core PostgreSQL request-to-mission behavior, transport state transitions, mesh relay, sync/idempotency, security controls, deterministic LLM fallback, and PostGIS routing integration are verified. A real local edge runtime acceptance was executed with cloud calls absent; the complete edge-to-gateway-to-PostgreSQL artifact chain and the full adversarial matrix were not both captured as one integrated campaign, so readiness is not claimed.
 
@@ -21,7 +23,7 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 - True zero-connectivity EdgeNode run: **PASS**; actual SQLite source and destination files recorded one event with one local projection, one queued outbox item, preserved event ID, and zero cloud calls. Temporary evidence databases were removed after capture.
 - Edge-to-mesh-to-gateway-to-PostgreSQL convergence: **PARTIAL, same event exercised**; event `EV-FINAL-bcbd63092b1f4bdb9401eb67b0054aed` traversed SQLite queue, mesh relay, gateway sync, PostgreSQL event store, request projection, and audit. Replay returned no new relay event. Migration `0003_event_origin_identity.sql` now preserves the literal source in `origin_device_source` alongside the canonical UUID mapping; round-trip verification passed with `GW-LITERAL-ACCEPTANCE`.
 - Adversarial/security campaign: **48 passed, 6 warnings** including explicit event ID, signature, origin, HLC, causal-parent, rotated key, oversized input boundary, prompt-injection-as-data, malformed geometry, and unknown-field rows. Live HTTP geometry acceptance rejected four hostile payloads with **422**. Live device quarantine also passed: pre-revocation request **201**, revoke **200**, post-revocation event **422 DEVICE_REVOKED**, and the rejected request was **404** on lookup.
-- Integrated flood plus route-blocking hazard plus LLM outage: **PARTIAL, one continuous run captured** under `RUN-FLOOD-UNIQUE-f0445fad21ae42e2af97673e9372c409`; the same correlation ID covered SQLite queue, mesh recovery, deterministic LLM fallback, prioritization, hazard introduction, and repeat observation. The run did not reach an approved recommendation/mission or prove route invalidation/recomputation, so readiness remains blocked.
+- Integrated flood plus route-blocking hazard plus LLM outage: **FAIL, direct run captured** under `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9`; the request completed through offline API handling, PostgreSQL-backed sync state, deterministic verification/prioritization, and fallback recommendation with hard guardrail. The same run's hazard write was rejected as `DEVICE_REVOKED`, the audit endpoint returned 404, and it did not reach route invalidation, HITL, mission, communication, or dispatch.
 - Existing device/event security coverage includes signed-envelope tamper rejection, RBAC, replay, and mesh relay paths.
 - Resilience simulator API runs completed for: `flood_progression`, `communication_degradation`, `infrastructure_failure`, `resource_shortage`, `misinformation`, and `gateway_failure`.
 - Each PostgreSQL simulation run completed with `production_writes: 0`; observed metrics were `ticks: 2`, `events_generated: 3`, `resilience_score: 1.0`, `unresolved_demand: 0`. These metrics are not sufficient to claim operational resilience because the PostgreSQL runner does not execute the full scenario services.
@@ -47,6 +49,19 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 | Mission lifecycle and audit | PARTIAL | Mission projection and approval audit were proven; complete lifecycle progression remains open. |
 
 Observed fresh request outcome: `PENDING_APPROVAL` followed by `approved`; `mission_id` was returned after approval. A separate unrelated nearby request was not merged after the semantic dedupe fix.
+
+## Single-run evidence table
+
+| Stage | Status | Evidence | Event/run ID | Blocker |
+|---|---|---|---|---|
+| Citizen emergency request | PASS | `POST /requests` returned 201 and `event_status=applied`; request reached `triaged` | `REQ-BB05CDA928A64B9E` / `01M2DZNADXR733PFFC0R8V7WPM` / `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Offline transport identity was not independently traced through mesh in this run |
+| Verification and prioritization | PASS | Deterministic verification returned `UNVERIFIED`, explicit `LLM_PROVIDER_UNCONFIGURED` fallback, and priority-v2 score `57.24` | `REQ-BB05CDA928A64B9E` | No corroborating report |
+| Hazard spatial detection | FAIL | Same-run hazard POST returned `422 EVENT_REJECTED / DEVICE_REVOKED` | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Device was revoked before hazard action |
+| Route invalidation/recomputation | NOT PROVEN | No same-run route version or recompute event | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Hazard action rejected |
+| Allocation/recommendation/Safety-Critic | PARTIAL | Existing fallback recommendation/critic was visible, but it was an unrelated persisted recommendation; same-run recommendation was blocked by unavailable route/resource | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | No same-run causal chain |
+| HITL approval and mission dispatch | FAIL | No same-run approval, mission, communication, or dispatch event | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Chain stopped before recommendation approval |
+| Audit | FAIL | `GET /admin/audit` returned 404 in the run | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | No complete same-run audit artifact |
+| LLM outage continuity | PARTIAL | Fallback was explicit and non-fabricated during verification/recommendation | `RUN-INTEGRATED-ce2485ddf97d404c81bda83d60f742d9` | Continuation to mission dispatch was not reached |
 
 ## Scenario A–E result
 
@@ -149,9 +164,9 @@ F = not verified in this campaign.
 
 ## Top remaining MVP gaps
 
-1. Capture the final integrated flood/hazard/LLM-outage run with the same event ID and audit record; literal origin identity preservation is now implemented and verified.
-2. Keep the live revoked-device and geometry HTTP results in the final evidence artifact; both controls are now directly verified.
-3. Extend the captured flood run through route invalidation/recomputation, allocation, recommendation, explicit approval, mission creation/dispatch, communication selection, and same-run audit.
+1. Run the integrated scenario with an active, non-revoked device and preserve the same event identity from edge transport through hazard and audit.
+2. Extend that same run through route invalidation/recomputation, allocation, recommendation, explicit approval, mission creation/dispatch, communication selection, and same-run audit.
+3. Rerun the full backend suite after the auth rate-limit window resets; current mesh/security setup was blocked by rate limiting and missing test environment variables.
 4. Remove or explicitly disposition the remaining test warnings.
 
 ## Previous gap history
