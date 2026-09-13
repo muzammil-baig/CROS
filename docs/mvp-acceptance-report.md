@@ -5,9 +5,9 @@ Branch: `v0/crisis-response-os-96e14845`
 
 ## Verdict
 
-**MVP NOT READY — geospatial blocker cleared, route integration remains**
+**MVP NOT READY — evidence gaps remain**
 
-Core PostgreSQL request-to-mission behavior, transport state transitions, mesh relay, sync/idempotency, security controls, and deterministic LLM fallback are verified. PostGIS is now enabled and the private spatial schema is deployed and acceptance-tested. The remaining gap is wiring production routing and hazard invalidation to these spatial tables rather than only the deterministic fallback graph.
+Core PostgreSQL request-to-mission behavior, transport state transitions, mesh relay, sync/idempotency, security controls, deterministic LLM fallback, and PostGIS routing integration are verified. A real local edge runtime acceptance was executed with cloud calls absent; the complete edge-to-gateway-to-PostgreSQL artifact chain and the full adversarial matrix were not both captured as one integrated campaign, so readiness is not claimed.
 
 ## Validation performed
 
@@ -16,6 +16,10 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 - Geospatial PostgreSQL integration suite: **2 passed**.
 - Mesh relay suite rerun: **4 passed, 3 warnings** after restarting a stale backend worker holding a read-only SQLite connection.
 - Full backend suite: **57 passed, 7 warnings**.
+- True zero-connectivity EdgeNode run: **PASS**; actual SQLite source and destination files recorded one event with one local projection, one queued outbox item, preserved event ID, and zero cloud calls. Temporary evidence databases were removed after capture.
+- Edge-to-mesh-to-gateway-to-PostgreSQL convergence: **PARTIAL**; existing mesh and sync suites passed, but one single-run artifact linking the same offline event through every durable store was not captured.
+- Explicit adversarial integrity matrix: **PARTIAL**; covered signed-envelope tamper, replay/idempotency, RBAC, approval authorization, malformed service inputs, and hazard validation; modified event ID/origin/HLC/causal parents, revoked/rotated key, oversized payload, prompt injection, and malicious geometry cases lack independent recorded rows.
+- Integrated flood plus route-blocking hazard plus LLM outage: **PARTIAL**; request-to-mission and deterministic fallback passed separately, but the complete combined scenario was not captured as one run.
 - Existing device/event security coverage includes signed-envelope tamper rejection, RBAC, replay, and mesh relay paths.
 - Resilience simulator API runs completed for: `flood_progression`, `communication_degradation`, `infrastructure_failure`, `resource_shortage`, `misinformation`, and `gateway_failure`.
 - Each PostgreSQL simulation run completed with `production_writes: 0`; observed metrics were `ticks: 2`, `events_generated: 3`, `resilience_score: 1.0`, `unresolved_demand: 0`. These metrics are not sufficient to claim operational resilience because the PostgreSQL runner does not execute the full scenario services.
@@ -90,7 +94,37 @@ Transport evidence: A=`CONNECTED`, B=`DEGRADED`, C=`MESH_ONLY`, D=`SATELLITE_BAC
 
 The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. Production integration is now implemented in the PostgreSQL adapter and operations/projection paths: routes load from `spatial.road_segment`, hazards load from `spatial.hazard_area`, snapshots persist to `spatial.route_snapshot`, and hazard updates invalidate intersecting routes. Deterministic graph fallback remains available for incomplete deployments.
 
+## Final evidence matrix
+
+| Capability | Result | Evidence | Blocker |
+|---|---|---|---|
+| Zero-connectivity edge acknowledgement | PASS | Real `EdgeNode` SQLite run: local event, projection, queued outbox, preserved event ID, `cloud_calls=0` | None for local acknowledgement |
+| Edge → mesh → gateway → PostgreSQL convergence | PARTIAL | `TestMeshRelay`, `test_sync_convergence.py`, and full suite passed | No single captured artifact chain for the same offline event across all stores |
+| Device and envelope integrity | PARTIAL | Signed envelope tamper/quarantine, replay/idempotency, and device tests passed | Explicit event-ID/origin/HLC/causal-parent mutation rows missing |
+| Authorization and HITL | PASS/PARTIAL | RBAC, approval, audit, and mission tests passed | Full role-by-role matrix artifact not captured |
+| Input and agent safety | PARTIAL | Deterministic malformed-input, hazard-module, and fallback tests passed | Prompt injection, oversized payload, and malicious geometry rows missing |
+| Flood routing and PostGIS | PASS | Spatial schema, GiST, spatial predicates, route snapshots, hazard invalidation, and routing tests passed | Combined scenario evidence remains separate |
+| LLM outage continuity | PASS/PARTIAL | Explicit deterministic fallback with no fabricated response; full suite passed | Combined outage-to-approved-mission run not captured |
+| Full backend regression | PASS | `57 passed, 7 warnings` | Warnings remain |
+
+## Remaining issue classification
+
+A = verified production capability with passing evidence.
+B = implemented and covered, but with limited campaign evidence.
+C = acceptance coverage incomplete; no readiness claim.
+D = simulator-backed or fallback-only evidence.
+E = known test/runtime warning or operational cleanup.
+F = not verified in this campaign.
+
 ## Top remaining MVP gaps
+
+1. Capture one durable edge → mesh → gateway → PostgreSQL chain using the same event ID and audit record.
+2. Execute and persist all requested adversarial matrix rows, including key rotation/revocation, every signed-field mutation, prompt injection, oversized payload, and malicious geometry.
+3. Execute one integrated flood scenario that introduces a route-blocking hazard and LLM outage after the offline request, then proves route recomputation, deterministic allocation, approval gating, mission continuation, and audit.
+4. Remove or explicitly disposition the seven test warnings.
+
+## Previous gap history
+
 
 1. Add a real zero-connectivity edge → mesh → gateway acceptance harness using the actual event log and sync endpoints.
 2. Prevent legitimate new emergency requests from being incorrectly merged as duplicates, or make duplicate evidence and merge policy explicit and testable.
