@@ -30,7 +30,8 @@ export function apiError(e) {
   if (typeof d?.detail === "string") return d.detail;
   if (Array.isArray(d?.detail)) return d.detail.map((x) => x.msg || JSON.stringify(x)).join(" ");
   if (e?.response?.status === 404) {
-    return "LOGIN SERVICE UNAVAILABLE (404). Use the demo credentials shown above, then retry when the backend is online.";
+    const target = API.replace(/\/api\/v1$/, "");
+    return `LOGIN SERVICE UNAVAILABLE (404): the frontend cannot find the backend at ${target}. Start the CROS API on port 8011 or set REACT_APP_BACKEND_URL to the deployed API URL, then retry.`;
   }
   if (e?.response?.status === 401) return "EMAIL OR PASSWORD IS INCORRECT. Try the demo credentials shown above.";
   return e?.message || "Request failed";
