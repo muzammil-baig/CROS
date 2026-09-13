@@ -45,7 +45,7 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 | Safety/critic | PASS | Hard guardrail critic returned caution with explicit `ROUTE_HAZARD_EXPOSURE` and `EVIDENCE_UNCERTAINTY` reason codes. |
 | IC approval gate | PASS | Incident commander approval returned an immutable approval ID. |
 | Mission creation after approval | PASS | Approval returned a mission ID and the outcome endpoint returned the persisted mission. |
-| Communication policy | PARTIAL | Mission creation was proven; dispatch transport/latency still needs a dedicated acceptance assertion. |
+| Communication policy | PASS | Dispatched mission accepted a scoped communication with `200`; queue inspection showed `MESSAGE_QUEUED`, `require_ack=true`, and flush delivered it over simulated `local_wifi`. |
 | Mission lifecycle and audit | PARTIAL | Mission projection and approval audit were proven; complete lifecycle progression remains open. |
 
 Observed fresh request outcome: `PENDING_APPROVAL` followed by `approved`; `mission_id` was returned after approval. A separate unrelated nearby request was not merged after the semantic dedupe fix.
@@ -149,7 +149,7 @@ The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. Produ
 | Adversarial integrity | PARTIAL | Covered tamper, replay, duplicate, RBAC, approval, malformed input, hazard validation | Explicit mutation, key, prompt-injection, oversized, malicious-geometry rows missing |
 | Edge → mesh → gateway → PostgreSQL convergence | B | Same event traversed queue, mesh, gateway sync, PostgreSQL, projection, and audit; replay was a no-op; `origin_device_source` round-trip verified | Full combined campaign and audit artifact still requires final integrated scenario |
 | Device and envelope integrity | B | 48 adversarial/convergence checks pass; live quarantine returned 422 `DEVICE_REVOKED` after revoke and did not persist the request | Production full-campaign artifact still needs direct capture |
-| Authorization and HITL | PASS/PARTIAL | Real API approval `200` persisted immutable approval `01M2E171WPSK87HNQN5595Q0MW`; mission was created only after approval and dispatched with `200` | Latest run lacked the required safe-route hazard fixture; unauthorized comm write correctly returned 403 |
+| Authorization and HITL | PASS | Real API approval `200` persisted immutable approval `01M2E171WPSK87HNQN5595Q0MW`; mission was created only after approval and dispatched with `200`; mission-scoped communication queued with `200` and unauthorized commander write returned 403 | Same-run blocking hazard plus dispatch campaign remains partial |
 | Input and agent safety | B | Explicit prompt-injection-as-data, oversized boundary, malformed geometry, and unknown-field tests pass; live hazard API rejected all four hostile geometry payloads with 422; no authority is derived from report text | Full safety audit artifact remains incomplete |
 | Flood routing and PostGIS | PASS | Spatial schema, GiST, spatial predicates, route snapshots, hazard invalidation, and routing tests passed | Combined scenario evidence remains separate |
 | LLM outage continuity | PASS/PARTIAL | Same run `RUN-HITL-bc936c75dd1e45a083b62b0e339f3327` used deterministic fallback through recommendation, approval, mission creation, and dispatch | Required same-run blocking hazard plus dispatch campaign not captured |
