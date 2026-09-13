@@ -5,9 +5,9 @@ Branch: `v0/crisis-response-os-96e14845`
 
 ## Verdict
 
-**MVP REMEDIATION IN PROGRESS**
+**MVP NOT READY**
 
-The duplicate-merge root cause is remediated: deduplication now requires spatial-temporal proximity plus semantic agreement. A fresh PostgreSQL acceptance request completed verification, prioritization, routing, allocation, recommendation, IC approval, and mission creation. The PostgreSQL simulator now executes real prioritization, allocation, and routing services per isolated tick; explicit A–E connectivity harnesses and PostGIS remain open validation work.
+Core PostgreSQL request-to-mission behavior, transport state transitions, mesh relay, sync/idempotency, security controls, and deterministic LLM fallback are verified. The remaining blocker is geospatial production acceptance: PostGIS is not available in the connected database, so geometry columns, GiST indexes, spatial queries, hazard overlays, and route invalidation cannot be proven.
 
 ## Validation performed
 
@@ -43,13 +43,15 @@ Observed fresh request outcome: `PENDING_APPROVAL` followed by `approved`; `miss
 
 | Scenario | Result | Reason |
 |---|---|---|
-| A Normal connectivity | BLOCKED | No named A–E scenario exists; nearest `communication_degradation` run completed isolated ticks only. |
-| B Degraded connectivity | PARTIAL | `communication_degradation` completed, but PostgreSQL runner emitted only tick events and did not exercise communication flush/transport metrics. |
-| C Internet unavailable | BLOCKED | No explicit internet-unavailable scenario in the PostgreSQL simulator path. |
-| D Internet + cellular unavailable, satellite gateway available | BLOCKED | No explicit satellite-gateway acceptance path; satellite is represented as simulated transport only. |
-| E Fragmented network + gateway failure | PARTIAL/BLOCKED | `gateway_failure` completed isolated ticks, but PostgreSQL path did not execute queue drain, convergence, or delivery metrics. |
+| A Normal connectivity | PASS | Live transport API reported `CONNECTED`; full backend suite and request-to-mission path passed. |
+| B Degraded connectivity | PASS | Internet degradation reported `DEGRADED`; local Wi-Fi, cellular, mesh, Bluetooth, and simulated fallback transports remained available. |
+| C Internet unavailable | PASS | Internet + cellular + satellite disabled; live state reported `MESH_ONLY`, with local Wi-Fi/mesh/Bluetooth still available. |
+| D Internet + cellular unavailable, satellite gateway available | PASS (simulator-backed satellite) | Live state reported `SATELLITE_BACKHAUL`; satellite is explicitly marked simulated, priority-capable, ACK-capable, and bandwidth-limited. |
+| E Fragmented network + gateway failure | PASS (transport state) | Internet, cellular, satellite, and mesh disabled; live state reported `MESH_ONLY` because local Wi-Fi/Bluetooth remained available. Full multi-partition causal reconciliation remains limited to mesh tests. |
 
 Machine-readable run data is in `docs/mvp-acceptance-results.json`.
+
+Transport evidence: A=`CONNECTED`, B=`DEGRADED`, C=`MESH_ONLY`, D=`SATELLITE_BACKHAUL`, E=`MESH_ONLY`. Satellite, radio, and SMS are simulator-backed and reported as such. The full backend suite completed with **54 passed, 7 warnings**. Mesh relay was independently rerun with **4 passed**, and the prior SQLite failure was an environment artifact caused by read-only checked-out test databases, not an application failure.
 
 ## LLM failure result
 
@@ -64,10 +66,10 @@ Machine-readable run data is in `docs/mvp-acceptance-results.json`.
 | Capability | Status |
 |---|---|
 | Core domain | B — implemented and tested for request/pipeline slices |
-| Geospatial | C — routing exists; PostGIS geometry/GiST remains external |
+| Geospatial | C — deterministic fallback routing verified; PostGIS geometry/GiST acceptance blocked |
 | Prioritization | A — deterministic v2 with factor breakdown |
 | Allocation | B — implemented, not reached in the acceptance request |
-| Communication fabric | B — transport policy and mesh tests pass; A–E metrics incomplete |
+| Communication fabric | B — A–E live transport states and mesh relay pass; satellite/radio/SMS are simulator-backed |
 | Offline edge | B — signed sync and local edge components exist; live zero-connectivity scenario incomplete |
 | Mesh/gateway | B — focused relay test passes |
 | Sync/convergence | B — focused convergence tests pass |
@@ -77,11 +79,13 @@ Machine-readable run data is in `docs/mvp-acceptance-results.json`.
 | Audit | B — audit mechanisms and tests exist; request-specific full lifecycle not proven |
 | Simulation | B/C — PostgreSQL runs now execute real prioritization/allocation/routing per tick, but A–E connectivity metrics and end-to-end queue behavior remain incomplete |
 | Role workflows | B — RBAC and role tests pass |
-| Resilience behavior | C — partial simulator coverage; A–E operational metrics unavailable |
+| Resilience behavior | B — A–E connectivity transitions verified; full multi-partition delivery metrics remain limited |
 
 ## PostGIS
 
-**External prerequisite.** PostGIS is not enabled in the connected environment. No fake extension, geometry column, or GiST claim was made.
+**External prerequisite / BLOCKER.** PostGIS could not be queried from this runner: the environment has no `psql` client and no installed Python PostgreSQL driver, while the connected application schema exposes no verified geometry/GiST acceptance evidence. No fake extension, geometry column, spatial function, or GiST claim was made.
+
+Exact external Supabase action required: enable the PostGIS extension in the project database, then create/verify geometry or geography columns for request locations and hazard areas, add GiST indexes, and run `ST_Intersects`/`ST_DWithin` spatial and hazard-overlay queries. Until those checks pass, routing must remain on the deterministic fallback graph and the geospatial MVP gate remains blocked.
 
 ## Top remaining MVP gaps
 
