@@ -1,6 +1,6 @@
 # CROS Flood-Response MVP Acceptance Report
 
-Date: 2026-09-14
+Date: 2026-09-16
 Branch: `v0/crisis-response-os-96e14845`
 
 ## Verdict
@@ -16,7 +16,9 @@ Core PostgreSQL request-to-mission behavior, transport state transitions, mesh r
 ## Validation performed
 
 - Deterministic service suite: **10 passed**.
-- Frontend production build: **PASS**; login API base now uses `REACT_APP_BACKEND_URL` or a safe local backend fallback and targets `/api/v1/auth/login`.
+- Frontend production build: **PASS**; login API base uses `REACT_APP_BACKEND_URL` or the canonical local fallback `http://127.0.0.1:8000` and targets `/api/v1/auth/login`.
+- Backend runtime/login contract: **PASS** on `127.0.0.1:8000`; `/api/health` returned `200` with PostgreSQL up, valid admin login returned `200`, invalid credentials `401`, malformed body `422`, unauthenticated audit `401`, and authenticated audit `200`.
+- Backend focused regression suite: **43 passed, 1 warning** across adversarial, deterministic services, spatial PostgreSQL, and sync convergence tests. The first runner attempt failed only because the shell environment lacked `PYTHONPATH`/the prior `.venv`; the canonical `uv run` invocation passed.
 - Operator authentication: **PASS**; valid credentials returned 200, invalid credentials returned 401, and the unprefixed legacy path remained 404. Rate limiting remains in the backend auth handler.
 - Spatial regression and convergence suite: **23 passed, 1 warning** after adding the literal origin identity migration and round-trip verification.
 - Geospatial PostgreSQL integration suite: **2 passed**.
