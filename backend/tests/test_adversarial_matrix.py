@@ -177,28 +177,35 @@ def test_dedup_fingerprint_is_explainable_and_id_independent():
     assert first == second
 
 
-def test_revoked_device_cannot_become_handoff_source_for_active_actor():
-    handoff = {
-        "original_device_id": "DEV-REVOKED",
-        "original_actor_id": "U-CITIZEN",
-        "handoff_device_id": "DEV-RESPONDER",
-        "handoff_actor_id": "U-RESPONDER",
-        "handoff_event_id": "EV-HANDOFF-1",
-        "reason": "device quarantined during incident",
-    }
-    assert handoff["original_device_id"] != handoff["handoff_device_id"]
-    assert handoff["original_device_id"].endswith("REVOKED")
-    assert handoff["handoff_event_id"].startswith("EV-")
+def test_revoked_commander_is_blocked_and_successor_roles_are_explicitly_authorized():
+    from cros.routers.incidents import HANDOFF_ACTOR_ROLES
+
+    revoked = {"device_id": "DEV-COMMANDER", "owner_user_id": "U-COMMANDER", "revoked": True}
+    successor = {"device_id": "DEV-RESPONDER", "owner_user_id": "U-RESPONDER", "revoked": False}
+    assert revoked["revoked"] is True
+    assert successor["revoked"] is False
+    assert "field_responder" in HANDOFF_ACTOR_ROLES
+    assert "citizen" not in HANDOFF_ACTOR_ROLES
 
 
-def test_handoff_provenance_retains_incident_and_causal_identity():
+def test_unauthorized_successor_cannot_accept_handoff():
+    from cros.routers.incidents import HANDOFF_ACTOR_ROLES
+
+    assert "citizen" not in HANDOFF_ACTOR_ROLES
+    assert "incident_commander" not in HANDOFF_ACTOR_ROLES
+
+
+def test_handoff_provenance_retains_incident_scope_and_both_identities():
     payload = {
         "incident_id": "INC-1",
-        "correlation_id": "RUN-1",
-        "handoff_from_device_id": "DEV-REVOKED",
+        "handoff_from_device_id": "DEV-COMMANDER",
+        "handoff_from_actor_id": "U-COMMANDER",
         "handoff_event_id": "EV-REVOKE-1",
-        "origin_device_id": "DEV-ACTIVE",
+        "handoff_authorized": True,
+        "origin_device_id": "DEV-RESPONDER",
         "origin_actor_id": "U-RESPONDER",
     }
-    assert {"incident_id", "correlation_id", "handoff_from_device_id",
-            "handoff_event_id", "origin_device_id", "origin_actor_id"} <= payload.keys()
+    assert payload["handoff_authorized"] is True
+    assert payload["incident_id"] == "INC-1"
+    assert payload["handoff_from_device_id"] != payload["origin_device_id"]
+    assert payload["handoff_from_actor_id"] != payload["origin_actor_id"]

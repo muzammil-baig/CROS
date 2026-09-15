@@ -43,6 +43,9 @@ class PatchIncidentBody(BaseModel):
     severity: Optional[str] = None
 
 
+HANDOFF_ACTOR_ROLES = frozenset({"field_responder", "government_officer", "gateway_operator"})
+
+
 class CreateHazardBody(BaseModel):
     hazard_type: str = "flood"
     geometry: dict
@@ -201,19 +204,31 @@ async def create_hazard(body: CreateHazardBody,
                        [{"field": "hazard_type", "issue": "no hazard module registered"}])
     module = get_module(body.hazard_type)
     active_device_id = await default_device(user)
-    if body.handoff_from_device_id and body.handoff_from_device_id == active_device_id:
-        raise ApiError(422, "INVALID_HANDOFF", "Handoff source must differ from the active device")
-    if body.handoff_from_device_id:
+    handoff = bool(body.handoff_from_device_id or body.handoff_event_id or body.handoff_reason)
+    source_device = None
+    source_actor_id = None
+    if handoff:
+        if not body.incident_id or not body.handoff_from_device_id or not body.handoff_event_id or not body.handoff_reason:
+            raise ApiError(422, "INVALID_HANDOFF", "incident_id, revoked source, event, and reason are required")
+        if user["role"] not in HANDOFF_ACTOR_ROLES:
+            raise ApiError(403, "HANDOFF_NOT_AUTHORIZED", "Actor role cannot accept incident handoff")
+        if body.handoff_from_device_id == active_device_id:
+            raise ApiError(422, "INVALID_HANDOFF", "Handoff source must differ from the active device")
         if PERSISTENCE_BACKEND == "postgres":
             from .. import postgres
             source_device = await postgres.find_device(body.handoff_from_device_id)
         else:
             source_device = await db.devices.find_one({"device_id": body.handoff_from_device_id}, {"_id": 0})
+        incident = await db.incidents.find_one({"incident_id": body.incident_id}, {"_id": 0})
+        if not incident:
+            raise not_found("Incident not found")
         if not source_device or not source_device.get("revoked"):
             raise ApiError(422, "INVALID_HANDOFF", "Handoff source must be a revoked device")
-        if not body.handoff_reason:
-            raise ApiError(422, "INVALID_HANDOFF", "Handoff reason is required")
+        source_actor_id = source_device.get("owner_user_id")
+        if not source_actor_id or source_actor_id != incident.get("commander_user_id"):
+            raise ApiError(403, "HANDOFF_SCOPE_VIOLATION", "Handoff source is not the incident commander")
     payload = body.model_dump()
+    payload.update({"handoff_authorized": handoff, "handoff_from_actor_id": source_actor_id})
     payload.update({
         "hazard_id": hazard_id,
         "origin_device_id": active_device_id,
