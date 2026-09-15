@@ -120,8 +120,10 @@ The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. Produ
 - Root cause: the campaign reused the revoked commander's `DEV-{user_id}` signing identity after the revocation event; the event bus correctly rejected the hazard as `DEVICE_REVOKED`.
 - Fix: hazard creation now resolves and validates the active caller device before emitting, rejects self-handoffs, requires a revoked handoff source plus a reason, and persists original device, handoff event/reason, incident, active actor, and active device provenance in the signed hazard payload.
 - Regression evidence: adversarial matrix **19 passed**; revoked-device enforcement remains in the event bus and active caller resolution.
-- Continuous campaign status: **NOT RUN / NOT READY**. No new single-run hazard-to-audit campaign was captured after this code change, so no READY claim is made.
-- Latest implementation commit: `2583051`.
+- Continuous campaign status: **BLOCKED / NOT READY**. Fresh run `RUN-POSTFIX-8ddb250bcfc84e40b539dddf2c556875` created request `REQ-01M2K6HJCNNK8GM4B5YGEQQSGS` with `201`, PostgreSQL `SYNCED`, deterministic fallback (`LLM_PROVIDER_UNCONFIGURED`), and priority `59.2`. The live successor handoff attempt was blocked at hazard creation with `422 INVALID_HANDOFF` because the deployed worker was stale first, then isolated validation exposed and fixed the PostgreSQL persistence import/runtime boundary; no post-fix hazard-to-audit chain was completed.
+- Revocation negative control: **PASS**; the revoked source remained rejected and no bypass was used.
+- Authorized continuation: **FAIL/UNPROVEN**; exact blocker is post-fix live hazard creation after the persistence-runtime fix.
+- Latest implementation commit: `2583051` pending the final persistence-import correction.
 - Working tree was clean immediately before this evidence update; final post-commit status must be rechecked before acceptance.
 
 ## Warning disposition

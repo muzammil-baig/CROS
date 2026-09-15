@@ -9,6 +9,7 @@ from ..constants import EventType
 from ..db import db
 from ..errors import ApiError, not_found
 from ..models import GeoPoint
+from ..config import PERSISTENCE_BACKEND
 from ..services import operations
 from ..services.hazard import get_module, registered_types
 from ..ulid import new_ulid
@@ -203,7 +204,11 @@ async def create_hazard(body: CreateHazardBody,
     if body.handoff_from_device_id and body.handoff_from_device_id == active_device_id:
         raise ApiError(422, "INVALID_HANDOFF", "Handoff source must differ from the active device")
     if body.handoff_from_device_id:
-        source_device = await db.devices.find_one({"device_id": body.handoff_from_device_id}, {"_id": 0})
+        if PERSISTENCE_BACKEND == "postgres":
+            from .. import postgres
+            source_device = await postgres.find_device(body.handoff_from_device_id)
+        else:
+            source_device = await db.devices.find_one({"device_id": body.handoff_from_device_id}, {"_id": 0})
         if not source_device or not source_device.get("revoked"):
             raise ApiError(422, "INVALID_HANDOFF", "Handoff source must be a revoked device")
         if not body.handoff_reason:
