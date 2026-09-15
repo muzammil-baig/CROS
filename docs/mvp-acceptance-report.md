@@ -120,10 +120,12 @@ The spatial migration is `backend/migrations/0002_spatial_geospatial.sql`. Produ
 - Root cause: the campaign reused the revoked commander's `DEV-{user_id}` signing identity after the revocation event; the event bus correctly rejected the hazard as `DEVICE_REVOKED`.
 - Fix: hazard creation now resolves and validates the active caller device before emitting, rejects self-handoffs, requires a revoked handoff source plus a reason, and persists original device, handoff event/reason, incident, active actor, and active device provenance in the signed hazard payload.
 - Regression evidence: adversarial matrix **19 passed**; revoked-device enforcement remains in the event bus and active caller resolution.
-- Continuous campaign status: **BLOCKED / NOT READY**. Fresh run `RUN-POSTFIX-8ddb250bcfc84e40b539dddf2c556875` created request `REQ-01M2K6HJCNNK8GM4B5YGEQQSGS` with `201`, PostgreSQL `SYNCED`, deterministic fallback (`LLM_PROVIDER_UNCONFIGURED`), and priority `59.2`. The live successor handoff attempt was blocked at hazard creation with `422 INVALID_HANDOFF` because the deployed worker was stale first, then isolated validation exposed and fixed the PostgreSQL persistence import/runtime boundary; no post-fix hazard-to-audit chain was completed.
+- Continuous campaign status: **BLOCKED / NOT READY**. Fresh post-correction execution of `tests/test_iteration3.py` reached hazard creation but failed with `422 EVENT_REJECTED / DEVICE_REVOKED`; the commander identity was correctly rejected. The campaign did not reach route invalidation/recomputation, allocation, HITL approval, mission dispatch, communication delivery, or final audit.
 - Revocation negative control: **PASS**; the revoked source remained rejected and no bypass was used.
-- Authorized continuation: **FAIL/UNPROVEN**; exact blocker is post-fix live hazard creation after the persistence-runtime fix.
-- Latest implementation commit: `2583051` pending the final persistence-import correction.
+- Authorized continuation: **FAIL/UNPROVEN**; no completed successor handoff campaign was captured, so downstream success is not claimed.
+- LLM continuity: **UNPROVEN for this chain**; deterministic fallback passed in prior request evidence, but this campaign terminated before downstream stages.
+- Regression execution: **57 passed, 1 failed** in `tests/test_iteration3.py`; the failure was the revoked-device hazard guard.
+- Latest implementation commit: `eb525ae`; working tree must remain clean after evidence update.
 - Working tree was clean immediately before this evidence update; final post-commit status must be rechecked before acceptance.
 
 ## Warning disposition
