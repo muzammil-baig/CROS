@@ -4,6 +4,8 @@ Capacity is never assigned last-write-wins. Every change is an idempotent
 increment/decrement operation identified by operation_id; the current value is
 the fold of all operations, so concurrent edge updates converge.
 """
+from __future__ import annotations
+
 from ..models import utcnow_iso
 
 COUNTER_KINDS = {
@@ -16,6 +18,14 @@ async def apply_operation(db, *, facility_id: str, counter_kind: str, operation:
                           amount: int, operation_id: str, actor_id: str | None,
                           origin_device_id: str | None = None) -> dict:
     """Idempotent by operation_id. Returns the recomputed facility counters."""
+    if counter_kind not in {kind for kinds in COUNTER_KINDS.values() for kind in kinds}:
+        raise ValueError(f"unsupported capacity counter: {counter_kind}")
+    if operation not in {"increment", "decrement"}:
+        raise ValueError(f"unsupported capacity operation: {operation}")
+    if int(amount) <= 0:
+        raise ValueError("capacity amount must be positive")
+    if not operation_id or len(operation_id) > 160:
+        raise ValueError("operation_id is required and must be at most 160 characters")
     existing = await db.capacity_ops.find_one({"operation_id": operation_id}, {"_id": 0})
     if existing is None:
         await db.capacity_ops.insert_one({

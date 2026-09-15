@@ -5,9 +5,13 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
 
-MONGO_URL = os.environ["MONGO_URL"]
-DB_NAME = os.environ["DB_NAME"]
+MONGO_URL = os.environ.get("MONGO_URL")
+DB_NAME = os.environ.get("DB_NAME", "cros")
 SIM_DB_NAME = f"{DB_NAME}_simulation"
+POSTGRES_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
+POSTGRES_URL_NON_POOLING = os.environ.get("POSTGRES_URL_NON_POOLING") or POSTGRES_URL
+PERSISTENCE_BACKEND = os.environ.get("CROS_PERSISTENCE_BACKEND", "mongo")
+TEST_MODE = os.environ.get("CROS_TEST_MODE", "0") == "1"
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = "HS256"
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")

@@ -4,6 +4,8 @@ Every transport implements the same contract. Physical/provider-dependent
 transports (satellite, radio, SMS) are simulator-backed and report
 `simulated=True`; the rest of the system only talks to the abstraction.
 """
+from __future__ import annotations
+
 import asyncio
 import random
 from abc import ABC, abstractmethod

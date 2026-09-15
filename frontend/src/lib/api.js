@@ -1,7 +1,10 @@
 import axios from "axios";
 
-const BASE = process.env.REACT_APP_BACKEND_URL;
-export const API = `${BASE}/api/v1`;
+const BASE = process.env.REACT_APP_BACKEND_URL ||
+  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8000"
+    : window.location.origin);
+export const API = `${BASE.replace(/\/$/, "")}/api/v1`;
 
 export const api = axios.create({ baseURL: API, withCredentials: true, timeout: 60000 });
 
@@ -26,6 +29,11 @@ export function apiError(e) {
   if (d?.error?.message) return `${d.error.code}: ${d.error.message}`;
   if (typeof d?.detail === "string") return d.detail;
   if (Array.isArray(d?.detail)) return d.detail.map((x) => x.msg || JSON.stringify(x)).join(" ");
+  if (e?.response?.status === 404) {
+    const target = API.replace(/\/api\/v1$/, "");
+    return `LOGIN SERVICE UNAVAILABLE (404): the frontend cannot find the backend at ${target}. Start the CROS API on port 8000 or set REACT_APP_BACKEND_URL to the deployed API URL, then retry.`;
+  }
+  if (e?.response?.status === 401) return "EMAIL OR PASSWORD IS INCORRECT. Try the demo credentials shown above.";
   return e?.message || "Request failed";
 }
 

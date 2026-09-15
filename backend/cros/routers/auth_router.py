@@ -9,6 +9,7 @@ from ..audit import record
 from ..auth import (create_access_token, create_offline_permission_token,
                     create_refresh_token, decode_token, get_current_user, rate_limit,
                     role_permissions, verify_password)
+from ..config import PERSISTENCE_BACKEND, TEST_MODE
 from ..constants import EventType
 from ..db import db
 from ..errors import ApiError
@@ -36,7 +37,8 @@ class DeviceRegisterBody(BaseModel):
 async def login(body: LoginBody, request: Request, response: Response):
     ip = request.client.host if request.client else "unknown"
     email = body.email.lower()
-    rate_limit(f"login:{ip}", 20, 60)
+    if not TEST_MODE:
+        rate_limit(f"login:{ip}", 20, 60)
     identifier = f"{ip}:{email}"
     att = await db.login_attempts.find_one({"identifier": identifier})
     if att and att.get("count", 0) >= MAX_ATTEMPTS:
@@ -47,7 +49,11 @@ async def login(body: LoginBody, request: Request, response: Response):
                            f"Too many failed attempts. Try again after {locked_until.isoformat()}")
         await db.login_attempts.delete_one({"identifier": identifier})
 
-    user = await db.users.find_one({"email": email})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        user = await postgres.find_user_by_email(email)
+    else:
+        user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user["password_hash"]):
         await db.login_attempts.update_one(
             {"identifier": identifier},
@@ -93,7 +99,11 @@ async def refresh_token(request: Request, response: Response):
     payload = decode_token(token)
     if payload.get("type") != "refresh":
         raise ApiError(401, "INVALID_TOKEN", "Not a refresh token")
-    user = await db.users.find_one({"user_id": payload["sub"]})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        user = await postgres.find_user_by_id(payload["sub"])
+    else:
+        user = await db.users.find_one({"user_id": payload["sub"]})
     if not user:
         raise ApiError(401, "UNAUTHENTICATED", "User not found")
     access = create_access_token(user)
@@ -142,6 +152,11 @@ async def register_device(body: DeviceRegisterBody, user: dict = Depends(get_cur
         "owner_user_id": user["user_id"], "device_type": body.device_type,
         "signing_mode": signing_mode, "trust_level": "provisional",
         "label": body.label})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        await postgres.upsert_device(device_id=device_id, owner_user_id=user["user_id"],
+                                     public_key=public_key, signing_mode=signing_mode,
+                                     trust_level="provisional")
     return {"device_id": device_id, "signing_mode": signing_mode,
             "simulated_signer": signing_mode == "server_keystore",
             "public_key": public_key, "event_id": result.get("event_id"),

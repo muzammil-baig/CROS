@@ -28,6 +28,7 @@ CREDS = {
     "citizen": ("citizen.hasan@example.com", "CrosDemo!2026"),
     "gateway": ("gateway.tanaka@cros.gov", "CrosDemo!2026"),
     "comms": ("comms.silva@cros.gov", "CrosDemo!2026"),
+    "successor": ("resp.khan@cros.gov", "CrosDemo!2026"),
 }
 
 SIGNED_FIELDS = [
@@ -347,7 +348,25 @@ class TestCyclone:
         assert "cyclone" in modules and "flood" in modules, modules
 
     def test_create_cyclone_hazard(self, tokens):
-        # polygon around ops area
+        incident = requests.post(f"{API}/incidents", headers=_H(tokens["commander"]), json={
+            "name": f"Cyclone handoff campaign {_ulid()}",
+            "hazard_type": "cyclone", "severity": "critical",
+            "location": {"type": "Point", "coordinates": [90.40, 23.78]},
+        }, timeout=30)
+        assert incident.status_code == 201, incident.text[:400]
+        incident_id = incident.json()["incident"]["incident_id"]
+
+        devices = requests.get(f"{API}/devices", headers=_H(tokens["admin"]), timeout=20)
+        assert devices.status_code == 200, devices.text[:300]
+        commander_user_id = requests.get(f"{API}/auth/me", headers=_H(tokens["commander"]), timeout=20).json()["user"]["user_id"]
+        commander_device = next(d for d in devices.json()["items"]
+                                if d.get("owner_user_id") == commander_user_id and not d.get("revoked"))
+        revoke = requests.post(f"{API}/devices/{commander_device['device_id']}/revoke",
+                               headers=_H(tokens["admin"]),
+                               json={"reason": "commander credential quarantined for handoff campaign"},
+                               timeout=20)
+        assert revoke.status_code in (200, 201), revoke.text[:300]
+
         body = {
             "hazard_type": "cyclone",
             "geometry": {"type": "Polygon", "coordinates": [[
@@ -359,10 +378,26 @@ class TestCyclone:
             "intensification_kph_per_hour": 8,
             "surge_rate_m_per_hour": 0.3,
         }
-        r = requests.post(f"{API}/hazards", headers=_H(tokens["commander"]),
-                          json=body, timeout=30)
-        assert r.status_code in (200, 201), r.text[:400]
-        j = r.json()
+        revoked_attempt = requests.post(f"{API}/hazards", headers=_H(tokens["commander"]),
+                                        json=body, timeout=30)
+        assert revoked_attempt.status_code == 422, revoked_attempt.text[:400]
+        assert "DEVICE_REVOKED" in revoked_attempt.text
+
+        handoff_body = {**body,
+                        "incident_id": incident_id,
+                        "handoff_from_device_id": commander_device["device_id"],
+                        "handoff_event_id": f"EV-HANDOFF-{_ulid()}",
+                        "handoff_reason": "revoked commander transferred incident to field responder"}
+        successor_attempt = requests.post(f"{API}/hazards", headers=_H(tokens["successor"]),
+                                          json=handoff_body, timeout=30)
+        assert successor_attempt.status_code in (200, 201), successor_attempt.text[:400]
+        j = successor_attempt.json()
+        hazard_doc = j.get("hazard") or {}
+        assert hazard_doc.get("incident_id") == incident_id, hazard_doc
+        assert hazard_doc.get("handoff_from_device_id") == commander_device["device_id"], hazard_doc
+        assert hazard_doc.get("handoff_from_actor_id") == commander_user_id, hazard_doc
+        assert hazard_doc.get("origin_actor_id") != commander_user_id, hazard_doc
+        assert hazard_doc.get("origin_device_id") != commander_device["device_id"], hazard_doc
         assert j.get("hazard_module") == "cyclone", j
         sev = j.get("severity") or j.get("severity_score")
         assert sev and 0.5 < float(sev) < 1.0, j

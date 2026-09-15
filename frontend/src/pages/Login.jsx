@@ -79,11 +79,33 @@ export default function Login() {
           <p className="font-micro text-[10px] text-neutral-500 mb-8">
             AUTHORIZATION IS ENFORCED SERVER-SIDE
           </p>
+          <div className="mb-4 border border-signal-cyan/40 bg-signal-cyan/5 px-3 py-2.5">
+            <div className="font-micro text-[9px] text-signal-cyan">DEMO ACCESS READY</div>
+            <div className="mt-1 font-micro text-[10px] text-neutral-300">
+              Email: <span className="text-white">cmd.rahman@cros.gov</span>
+            </div>
+            <div className="font-micro text-[10px] text-neutral-300">
+              Password: <span className="text-white">CrosDemo!2026</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail("cmd.rahman@cros.gov");
+                setPassword("CrosDemo!2026");
+                setError("");
+              }}
+              className="mt-2 font-micro text-[9px] text-signal-cyan underline underline-offset-2 hover:text-white"
+            >
+              USE THESE CREDENTIALS
+            </button>
+          </div>
           <form onSubmit={submit} className="space-y-3">
             <label className="block">
               <span className="font-micro text-[9px] text-neutral-500">EMAIL</span>
               <input
                 data-testid="input-email"
+                type="email"
+                autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full mt-1 bg-surface border border-line px-3 py-2 font-micro text-[11px] text-white outline-none focus:border-signal-cyan"
@@ -94,6 +116,7 @@ export default function Login() {
               <input
                 data-testid="input-password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full mt-1 bg-surface border border-line px-3 py-2 font-micro text-[11px] text-white outline-none focus:border-signal-cyan"

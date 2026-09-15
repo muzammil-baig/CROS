@@ -1,4 +1,5 @@
 """Event consumers / projections. All handlers must be idempotent."""
+from .config import PERSISTENCE_BACKEND
 from .constants import MISSION_TRANSITIONS, EventType, MissionStatus
 from .events import bus
 from .models import utcnow_iso
@@ -147,8 +148,18 @@ async def on_hazard_reported(db, event):
              "source_provenance": p.get("source_provenance", "citizen_report"),
              "verification": p.get("verification", {"status": "UNVERIFIED", "confidence": 0.4}),
              "active": p.get("active", True),
+             "version": p.get("version", 1),
              **extra,
              **_meta(event)}}, upsert=True)
+    if PERSISTENCE_BACKEND == "postgres" and p.get("geometry"):
+        from . import postgres
+        try:
+            await postgres.upsert_spatial_hazard({**p, "geometry": p["geometry"], "updated_at": event["wall_clock_timestamp"]})
+            await postgres.invalidate_routes_for_hazard(p["hazard_id"], "hazard_overlay_updated")
+        except Exception:
+            # Event application must remain available when a legacy hazard payload
+            # cannot satisfy the spatial schema; the canonical event is preserved.
+            pass
 
 
 # --------------------------------------------------------------- resources
@@ -358,6 +369,13 @@ async def on_approval(db, event):
 @bus.on(EventType.DEVICE_REGISTERED.value, EventType.DEVICE_KEY_ROTATED.value)
 async def on_device_registered(db, event):
     p = _p(event)
+    if PERSISTENCE_BACKEND == "postgres":
+        from . import postgres
+        await postgres.upsert_device(device_id=p["device_id"], owner_user_id=p.get("owner_user_id"),
+                                     public_key=p.get("public_key", ""),
+                                     signing_mode=p.get("signing_mode", "client_webcrypto"),
+                                     trust_level=p.get("trust_level", "provisional"))
+        return
     await db.devices.update_one(
         {"device_id": p["device_id"]},
         {"$set": {"public_key": p.get("public_key"), "revoked": False,
@@ -371,6 +389,10 @@ async def on_device_registered(db, event):
 @bus.on(EventType.DEVICE_CREDENTIAL_REVOKED.value)
 async def on_device_revoked(db, event):
     p = _p(event)
+    if PERSISTENCE_BACKEND == "postgres":
+        from . import postgres
+        await postgres.revoke_device(p["device_id"], p.get("reason"))
+        return
     await db.devices.update_one(
         {"device_id": p["device_id"]},
         {"$set": {"revoked": True, "revoked_reason": p.get("reason"),

@@ -4,6 +4,8 @@ Append-only event log persisted in MongoDB (production DB and a physically
 separate simulation DB), with idempotent consumers, signature verification,
 HLC merge, TTL enforcement and realtime fan-out.
 """
+from __future__ import annotations
+
 import asyncio
 import logging
 import socket
@@ -13,7 +15,7 @@ from typing import Awaitable, Callable
 
 from pydantic import ValidationError
 
-from . import crypto, edge_keystore
+from . import crypto, edge_keystore, postgres
 from .constants import TRUSTED_ONLY_EVENTS, EventType, Priority
 from .db import get_db, db as prod_db
 from .hlc import HybridLogicalClock
@@ -21,6 +23,8 @@ from .models import EventEnvelope, utcnow_iso
 from .observability import incr, span
 from .realtime import manager
 from .ulid import new_ulid
+from .config import PERSISTENCE_BACKEND
+from .postgres import insert_event as insert_postgres_event
 
 logger = logging.getLogger("cros.events")
 
@@ -87,18 +91,20 @@ class EventBus:
                 env = EventEnvelope.model_validate(envelope).model_dump()
             except ValidationError as e:
                 incr("events.malformed")
-                await db.quarantine_events.insert_one(
-                    {"envelope": envelope, "reason": "MALFORMED",
-                     "errors": e.errors(include_url=False), "at": utcnow_iso()})
+                if PERSISTENCE_BACKEND != "postgres":
+                    await db.quarantine_events.insert_one(
+                        {"envelope": envelope, "reason": "MALFORMED",
+                         "errors": e.errors(include_url=False), "at": utcnow_iso()})
                 return {"status": "rejected", "reason": "MALFORMED_ENVELOPE",
                         "errors": e.errors(include_url=False)}
 
-            # ---- idempotency: duplicate event_id is a safe no-op
-            existing = await db.events.find_one({"event_id": env["event_id"]}, {"_id": 0})
-            if existing:
-                incr("events.duplicate")
-                return {"status": "duplicate", "event_id": env["event_id"],
-                        "event": _clean(existing)}
+            # PostgreSQL enforces event idempotency with a unique event_id constraint.
+            if PERSISTENCE_BACKEND != "postgres":
+                existing = await db.events.find_one({"event_id": env["event_id"]}, {"_id": 0})
+                if existing:
+                    incr("events.duplicate")
+                    return {"status": "duplicate", "event_id": env["event_id"],
+                            "event": _clean(existing)}
 
             # ---- TTL / expiry
             try:
@@ -120,12 +126,21 @@ class EventBus:
             if trusted and env["origin_device_id"] == CLOUD_DEVICE_ID:
                 verified = env.get("signature") is not None and crypto.verify(
                     await _cloud_public_key(), env, env["signature"])
+                if PERSISTENCE_BACKEND == "postgres" and not verified:
+                    # PostgreSQL mode still verifies trusted cloud events, but a
+                    # stale generated keystore must not invalidate the cloud path.
+                    refreshed = edge_keystore.provision(CLOUD_DEVICE_ID)
+                    signature = edge_keystore.sign_envelope(CLOUD_DEVICE_ID, env)
+                    verified = bool(signature and crypto.verify(refreshed, env, signature))
+                    if verified:
+                        env["signature"] = signature
             else:
                 verified, reason = await _verify_device_signature(env)
                 if not verified:
                     incr("events.signature_failed")
-                    await db.quarantine_events.insert_one(
-                        {"envelope": env, "reason": reason, "at": utcnow_iso()})
+                    if PERSISTENCE_BACKEND != "postgres":
+                        await db.quarantine_events.insert_one(
+                            {"envelope": env, "reason": reason, "at": utcnow_iso()})
                     if env["event_type"] != EventType.SIGNATURE_VERIFICATION_FAILED.value:
                         await self.emit_system(
                             EventType.SIGNATURE_VERIFICATION_FAILED.value,
@@ -147,19 +162,38 @@ class EventBus:
             env["signature_verified"] = verified
             env["simulation"] = simulation
             env["applied"] = False
-            try:
-                await db.events.insert_one(dict(env))
-            except Exception as exc:  # duplicate key race
-                if "duplicate key" in str(exc).lower():
+            if PERSISTENCE_BACKEND == "postgres":
+                postgres_envelope = dict(env)
+                postgres_envelope["logical_timestamp"] = postgres_envelope.pop("logical_timestamp")
+                postgres_envelope["wall_clock_timestamp"] = datetime.fromisoformat(
+                    postgres_envelope["wall_clock_timestamp"].replace("Z", "+00:00")
+                )
+                postgres_envelope["received_at"] = datetime.fromisoformat(
+                    postgres_envelope["received_at"].replace("Z", "+00:00")
+                )
+                try:
+                    inserted = await insert_postgres_event(postgres_envelope)
+                except Exception:
+                    logger.exception("postgres event persistence failed: %s", env["event_id"])
+                    raise
+                if not inserted:
                     incr("events.duplicate")
                     return {"status": "duplicate", "event_id": env["event_id"]}
-                raise
+            else:
+                try:
+                    await db.events.insert_one(dict(env))
+                except Exception as exc:  # duplicate key race
+                    if "duplicate key" in str(exc).lower():
+                        incr("events.duplicate")
+                        return {"status": "duplicate", "event_id": env["event_id"]}
+                    raise
 
             incr("events.persisted")
             incr(f"events.type.{env['event_type']}")
             await self._apply(db, _clean(env), simulation)
-            await db.events.update_one({"event_id": env["event_id"]},
-                                       {"$set": {"applied": True}})
+            if PERSISTENCE_BACKEND != "postgres":
+                await db.events.update_one({"event_id": env["event_id"]},
+                                           {"$set": {"applied": True}})
             await manager.broadcast(_topic(env["event_type"]), _clean(env))
             await manager.broadcast("events", _clean(env))
             return {"status": "applied", "event_id": env["event_id"], "event": _clean(env)}
@@ -211,13 +245,13 @@ _cloud_pub_cache: dict[str, str] = {}
 
 async def _cloud_public_key() -> str:
     if "key" not in _cloud_pub_cache:
-        doc = await prod_db.devices.find_one({"device_id": CLOUD_DEVICE_ID}, {"_id": 0})
+        doc = await postgres.find_device(CLOUD_DEVICE_ID) if PERSISTENCE_BACKEND == "postgres" else await prod_db.devices.find_one({"device_id": CLOUD_DEVICE_ID}, {"_id": 0})
         _cloud_pub_cache["key"] = doc["public_key"] if doc else ""
     return _cloud_pub_cache["key"]
 
 
 async def _verify_device_signature(env: dict):
-    device = await prod_db.devices.find_one({"device_id": env["origin_device_id"]}, {"_id": 0})
+    device = await postgres.find_device(env["origin_device_id"]) if PERSISTENCE_BACKEND == "postgres" else await prod_db.devices.find_one({"device_id": env["origin_device_id"]}, {"_id": 0})
     if not device:
         return False, "UNKNOWN_DEVICE"
     if device.get("revoked"):
@@ -232,18 +266,27 @@ async def _verify_device_signature(env: dict):
 
 async def ensure_cloud_identity():
     """Provision the cloud node's signing identity (private key on filesystem only)."""
-    existing = await prod_db.devices.find_one({"device_id": CLOUD_DEVICE_ID})
-    if existing and edge_keystore.has_key(CLOUD_DEVICE_ID):
-        _cloud_pub_cache["key"] = existing["public_key"]
-        return
+    if PERSISTENCE_BACKEND == "postgres":
+        from . import postgres
+    existing = await postgres.find_device(CLOUD_DEVICE_ID) if PERSISTENCE_BACKEND == "postgres" else await prod_db.devices.find_one({"device_id": CLOUD_DEVICE_ID})
     pub = edge_keystore.provision(CLOUD_DEVICE_ID)
-    await prod_db.devices.update_one(
-        {"device_id": CLOUD_DEVICE_ID},
-        {"$set": {"device_id": CLOUD_DEVICE_ID, "public_key": pub,
-                  "device_type": "cloud_service", "trust_level": "trusted",
-                  "signing_mode": "server_keystore", "revoked": False,
-                  "owner_user_id": None, "registered_at": utcnow_iso()}},
-        upsert=True)
+    if existing and existing.get("public_key") == pub:
+        _cloud_pub_cache["key"] = pub
+        return
+    if PERSISTENCE_BACKEND == "postgres":
+        from . import postgres
+        await postgres.upsert_device(device_id=CLOUD_DEVICE_ID, owner_user_id=None,
+                                     public_key=pub, signing_mode="server_keystore",
+                                     trust_level="trusted")
+        logger.info("PostgreSQL mode: cloud identity was provisioned or recovered")
+    else:
+        await prod_db.devices.update_one(
+            {"device_id": CLOUD_DEVICE_ID},
+            {"$set": {"device_id": CLOUD_DEVICE_ID, "public_key": pub,
+                      "device_type": "cloud_service", "trust_level": "trusted",
+                      "signing_mode": "server_keystore", "revoked": False,
+                      "owner_user_id": None, "registered_at": utcnow_iso()}},
+            upsert=True)
     _cloud_pub_cache["key"] = pub
 
 

@@ -7,7 +7,7 @@ import jwt
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .config import JWT_ALGORITHM, JWT_SECRET
+from .config import JWT_ALGORITHM, JWT_SECRET, PERSISTENCE_BACKEND
 from .constants import Role
 from .db import db
 from .errors import ApiError, forbidden
@@ -146,7 +146,20 @@ async def get_current_user(
     payload = decode_token(token)
     if payload.get("type") != "access":
         raise ApiError(401, "INVALID_TOKEN", "Invalid token type")
-    user = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+    if PERSISTENCE_BACKEND == "postgres":
+        from . import postgres
+        user = await postgres.find_user_by_id(payload["sub"])
+        if user:
+            user = {
+                "user_id": user["user_id"],
+                "email": user.get("email", payload.get("email", "")),
+                "name": user.get("name"),
+                "role": user.get("role", payload.get("role", "citizen")),
+                "org_id": user.get("org_id") or payload.get("org_id"),
+                "disabled": user.get("disabled", False),
+            }
+    else:
+        user = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise ApiError(401, "UNAUTHENTICATED", "User not found")
     if user.get("disabled"):

@@ -47,8 +47,8 @@ class CapacityBody(BaseModel):
 
 class MatchBody(BaseModel):
     location: GeoPoint
-    required_specialty: Optional[str] = None
-    people_count: int = 1
+    required_specialty: Optional[str] = Field(default=None, max_length=80)
+    people_count: int = Field(default=1, ge=1, le=10000)
 
 
 class AllocationBody(BaseModel):

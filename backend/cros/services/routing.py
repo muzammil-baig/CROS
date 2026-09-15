@@ -195,10 +195,13 @@ def compute_route(graph_doc: dict, hazards: list[dict], origin, destination,
         "hazard_overlay_edges": len(overlay),
         "avoided_all_blocks": not degraded,
         "graph_id": graph_doc["graph_id"],
+        "graph_version": int(graph_doc.get("graph_version", 1)),
+        "hazard_version": max((int(h.get("version", 0)) for h in hazards), default=0),
         "graph_updated_at": graph_doc["updated_at"],
         "graph_age_seconds": _age(graph_doc["updated_at"]),
         "computed_at": utcnow_iso(),
         "algorithm": "dijkstra_networkx_hazard_overlay_v1",
+        "routing_version": "route-v1-networkx-fallback",
     }
 
 

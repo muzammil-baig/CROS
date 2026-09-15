@@ -1,4 +1,6 @@
 """Pluggable hazard modules. The core domain stays hazard-agnostic."""
+from __future__ import annotations
+
 import math
 from abc import ABC, abstractmethod
 

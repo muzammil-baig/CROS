@@ -26,12 +26,19 @@ TIERS = [(75, "critical"), (55, "high"), (30, "normal"), (0, "low")]
 
 def _age_seconds(iso: str) -> float:
     try:
-        t = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        t = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
         if t.tzinfo is None:
             t = t.replace(tzinfo=timezone.utc)
         return max(0.0, (datetime.now(timezone.utc) - t).total_seconds())
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return 0.0
+
+
+def _bounded_number(value, default: float = 0.0) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 
 def tier_for(score: float) -> str:
@@ -46,7 +53,10 @@ def compute_priority(request: dict, hazard_severity: float = 0.0) -> dict:
     factors = {}
     factors["category"] = float(CATEGORY_WEIGHT.get(request.get("category"), 10))
 
-    people = int(request.get("people_count") or 1)
+    try:
+        people = max(1, min(10000, int(request.get("people_count") or 1)))
+    except (TypeError, ValueError, OverflowError):
+        people = 1
     factors["people_count"] = float(min(15, 3 * people))
 
     vulns = request.get("vulnerabilities") or []
@@ -55,7 +65,9 @@ def compute_priority(request: dict, hazard_severity: float = 0.0) -> dict:
     age_min = _age_seconds(request.get("created_at", "")) / 60.0
     factors["time_waiting"] = float(min(15, age_min / 4.0))
 
-    factors["hazard_exposure"] = float(min(15, hazard_severity * 15))
+    proximity = _bounded_number(request.get("hazard_proximity", hazard_severity))
+    factors["hazard_proximity"] = round(proximity * 15, 2)
+    factors["hazard_exposure"] = float(min(15, _bounded_number(hazard_severity) * 15))
 
     if request.get("water_rising"):
         factors["water_rising"] = 8.0
@@ -70,6 +82,7 @@ def compute_priority(request: dict, hazard_severity: float = 0.0) -> dict:
         "tier": tier_for(score),
         "factors": {k: round(v, 2) for k, v in factors.items()},
         "verification_multiplier": multiplier,
-        "algorithm": "deterministic_weighted_v1",
+        "algorithm": "deterministic_weighted_v2",
+        "scoring_version": "priority-v2",
         "computed_at": datetime.now(timezone.utc).isoformat(),
     }

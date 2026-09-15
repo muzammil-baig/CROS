@@ -1,17 +1,19 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from shapely.geometry import shape
 
 from ..auth import require
 from ..constants import EventType
 from ..db import db
 from ..errors import ApiError, not_found
 from ..models import GeoPoint
+from ..config import PERSISTENCE_BACKEND
 from ..services import operations
 from ..services.hazard import get_module, registered_types
 from ..ulid import new_ulid
-from .deps import emit_client_event
+from .deps import default_device, emit_client_event
 
 router = APIRouter(tags=["incidents-hazards"])
 
@@ -41,10 +43,34 @@ class PatchIncidentBody(BaseModel):
     severity: Optional[str] = None
 
 
+HANDOFF_ACTOR_ROLES = frozenset({"field_responder", "government_officer", "gateway_operator"})
+
+
 class CreateHazardBody(BaseModel):
     hazard_type: str = "flood"
     geometry: dict
     description: str = Field(default="", max_length=1000)
+
+    @field_validator("geometry")
+    @classmethod
+    def validate_geometry(cls, value: dict) -> dict:
+        if not isinstance(value, dict) or value.get("type") not in {
+                "Point", "LineString", "Polygon", "MultiPoint", "MultiLineString",
+                "MultiPolygon", "GeometryCollection"}:
+            raise ValueError("geometry must be a supported GeoJSON geometry")
+        if any(key.startswith("__") for key in value):
+            raise ValueError("geometry contains forbidden fields")
+        try:
+            geometry = shape(value)
+        except Exception as exc:
+            raise ValueError("geometry is not valid GeoJSON") from exc
+        if geometry.is_empty or not geometry.is_valid:
+            raise ValueError("geometry must be non-empty and valid")
+        minx, miny, maxx, maxy = geometry.bounds
+        if not (-180 <= minx <= 180 and -180 <= maxx <= 180 and
+                -90 <= miny <= 90 and -90 <= maxy <= 90):
+            raise ValueError("geometry coordinates are outside geographic bounds")
+        return value
     severity: float = Field(default=0.5, ge=0.0, le=1.0)
     water_level_m: Optional[float] = None
     rise_rate_m_per_hour: Optional[float] = None
@@ -58,6 +84,9 @@ class CreateHazardBody(BaseModel):
     debris: bool = False
     road_blocked: bool = False
     incident_id: Optional[str] = None
+    handoff_from_device_id: Optional[str] = Field(default=None, min_length=3, max_length=120)
+    handoff_event_id: Optional[str] = Field(default=None, min_length=3, max_length=120)
+    handoff_reason: Optional[str] = Field(default=None, min_length=3, max_length=500)
 
 
 # ------------------------------------------------------------------ incidents
@@ -174,9 +203,36 @@ async def create_hazard(body: CreateHazardBody,
                        f"Unsupported hazard_type; modules: {registered_types()}",
                        [{"field": "hazard_type", "issue": "no hazard module registered"}])
     module = get_module(body.hazard_type)
+    active_device_id = await default_device(user)
+    handoff = bool(body.handoff_from_device_id or body.handoff_event_id or body.handoff_reason)
+    source_device = None
+    source_actor_id = None
+    if handoff:
+        if not body.incident_id or not body.handoff_from_device_id or not body.handoff_event_id or not body.handoff_reason:
+            raise ApiError(422, "INVALID_HANDOFF", "incident_id, revoked source, event, and reason are required")
+        if user["role"] not in HANDOFF_ACTOR_ROLES:
+            raise ApiError(403, "HANDOFF_NOT_AUTHORIZED", "Actor role cannot accept incident handoff")
+        if body.handoff_from_device_id == active_device_id:
+            raise ApiError(422, "INVALID_HANDOFF", "Handoff source must differ from the active device")
+        if PERSISTENCE_BACKEND == "postgres":
+            from .. import postgres
+            source_device = await postgres.find_device(body.handoff_from_device_id)
+        else:
+            source_device = await db.devices.find_one({"device_id": body.handoff_from_device_id}, {"_id": 0})
+        incident = await db.incidents.find_one({"incident_id": body.incident_id}, {"_id": 0})
+        if not incident:
+            raise not_found("Incident not found")
+        if not source_device or not source_device.get("revoked"):
+            raise ApiError(422, "INVALID_HANDOFF", "Handoff source must be a revoked device")
+        source_actor_id = source_device.get("owner_user_id")
+        if not source_actor_id or source_actor_id != incident.get("commander_user_id"):
+            raise ApiError(403, "HANDOFF_SCOPE_VIOLATION", "Handoff source is not the incident commander")
     payload = body.model_dump()
+    payload.update({"handoff_authorized": handoff, "handoff_from_actor_id": source_actor_id})
     payload.update({
         "hazard_id": hazard_id,
+        "origin_device_id": active_device_id,
+        "origin_actor_id": user["user_id"],
         "source_provenance": f"{user['role']}_report",
         "verification": {"status": "VERIFIED" if user["role"] in
                          ("field_responder", "incident_commander", "government_officer")
@@ -192,8 +248,11 @@ async def create_hazard(body: CreateHazardBody,
     result = await emit_client_event(event_type=EventType.HAZARD_REPORTED.value,
                                      payload=payload, user=user, priority="high")
     doc = await db.hazards.find_one({"hazard_id": hazard_id}, {"_id": 0})
-    return {"hazard": doc, "hazard_module": body.hazard_type if body.hazard_type
-            in registered_types() else "generic", "event_id": result.get("event_id")}
+    return {"hazard": doc, "hazard_id": hazard_id,
+            "hazard_module": body.hazard_type if body.hazard_type
+            in registered_types() else "generic", "severity": (doc or {}).get("severity", payload.get("severity")),
+            "road_blocked": (doc or {}).get("road_blocked", payload.get("road_blocked", False)),
+            "event_id": result.get("event_id")}
 
 
 @router.get("/hazards")

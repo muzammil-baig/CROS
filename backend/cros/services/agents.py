@@ -145,7 +145,7 @@ def fallback_synthesis(context: dict) -> SituationSynthesis:
         risks.append(f"Report {s.get('verification_status')} — corroboration required")
     if s.get("route_status") == "DEGRADED_ROUTE":
         risks.append("Only a hazard-exposed route is available")
-    if s.get("eta_seconds", 0) > 1800:
+    if (s.get("eta_seconds") or 0) > 1800:
         risks.append("Travel time exceeds 30 minutes")
     gaps = []
     if not s.get("people_count"):
@@ -245,6 +245,8 @@ def deterministic_critic(rec: dict) -> CriticVerdict:
         blocking = True
     if (ev.get("verification_confidence") or 0) < 0.35:
         codes.append("LOW_EVIDENCE_CONFIDENCE")
+    if ev.get("uncertainty"):
+        codes.append("EVIDENCE_UNCERTAINTY")
     if not action.get("resource_id"):
         codes.append("NO_RESOURCE_AVAILABLE")
         blocking = True

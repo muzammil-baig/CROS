@@ -1,5 +1,8 @@
 """Priority-aware outbound message queue + delivery over the transport abstraction."""
+from __future__ import annotations
+
 import json
+from datetime import datetime, timezone
 
 from ..constants import EventType, Priority
 from ..events import bus
@@ -53,6 +56,19 @@ async def flush(db, limit: int = 25, simulation: bool = False) -> dict:
     states = registry.states()
     results = []
     for msg in pending[:limit]:
+        if msg.get("ttl_seconds") is not None:
+            try:
+                age_seconds = max(0.0, (datetime.now(timezone.utc) -
+                                        datetime.fromisoformat(msg["queued_at"].replace("Z", "+00:00"))).total_seconds())
+                if age_seconds >= float(msg["ttl_seconds"]):
+                    await db.comm_messages.update_one(
+                        {"message_id": msg["message_id"]},
+                        {"$set": {"state": "EXPIRED", "last_error": "TTL_EXPIRED"}})
+                    results.append({"message_id": msg["message_id"], "delivered": False,
+                                    "error": "TTL_EXPIRED"})
+                    continue
+            except (TypeError, ValueError, OverflowError):
+                pass
         chosen, scoring = select_transport(states, msg["priority"], msg["size_kb"],
                                           msg.get("require_ack", True))
         if not chosen:

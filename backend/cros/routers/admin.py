@@ -10,6 +10,7 @@ from ..errors import ApiError, not_found
 from ..events import bus
 from ..models import utcnow_iso
 from ..observability import agent_invocations, counters, spans
+from ..config import PERSISTENCE_BACKEND
 from ..realtime import manager
 from ..services.transport import registry
 
@@ -91,7 +92,11 @@ async def get_org(org_id: str, user: dict = Depends(require("org:read"))):
 # --------------------------------------------------------------------- devices
 @router.get("/devices")
 async def list_devices(user: dict = Depends(require("device:admin"))):
-    docs = await db.devices.find({}, {"_id": 0}).to_list(500)
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        docs = await postgres.list_devices()
+    else:
+        docs = await db.devices.find({}, {"_id": 0}).to_list(500)
     for d in docs:
         d["private_key_stored_in_database"] = False
         d["simulated_signer"] = d.get("signing_mode") == "server_keystore"
@@ -100,7 +105,11 @@ async def list_devices(user: dict = Depends(require("device:admin"))):
 
 @router.get("/devices/{device_id}")
 async def get_device(device_id: str, user: dict = Depends(require("device:admin"))):
-    doc = await db.devices.find_one({"device_id": device_id}, {"_id": 0})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        doc = await postgres.find_device(device_id)
+    else:
+        doc = await db.devices.find_one({"device_id": device_id}, {"_id": 0})
     if not doc:
         raise not_found("Device not found")
     return doc
@@ -108,7 +117,11 @@ async def get_device(device_id: str, user: dict = Depends(require("device:admin"
 
 @router.get("/devices/{device_id}/trust-status")
 async def trust_status(device_id: str, user: dict = Depends(require("device:admin"))):
-    doc = await db.devices.find_one({"device_id": device_id}, {"_id": 0})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        doc = await postgres.find_device(device_id)
+    else:
+        doc = await db.devices.find_one({"device_id": device_id}, {"_id": 0})
     if not doc:
         raise not_found("Device not found")
     failures = await db.quarantine_events.count_documents(
@@ -123,7 +136,11 @@ async def trust_status(device_id: str, user: dict = Depends(require("device:admi
 @router.post("/devices/{device_id}/revoke")
 async def revoke_device(device_id: str, body: RevokeBody,
                         user: dict = Depends(require("device:admin"))):
-    doc = await db.devices.find_one({"device_id": device_id}, {"_id": 0})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        doc = await postgres.find_device(device_id)
+    else:
+        doc = await db.devices.find_one({"device_id": device_id}, {"_id": 0})
     if not doc:
         raise not_found("Device not found")
     if doc.get("revoked"):
@@ -138,7 +155,11 @@ async def revoke_device(device_id: str, body: RevokeBody,
 
 @router.get("/devices/{device_id}/revocation-status")
 async def revocation_status(device_id: str, user: dict = Depends(require("device:admin"))):
-    doc = await db.devices.find_one({"device_id": device_id}, {"_id": 0})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        doc = await postgres.find_device(device_id)
+    else:
+        doc = await db.devices.find_one({"device_id": device_id}, {"_id": 0})
     if not doc:
         raise not_found("Device not found")
     return {"device_id": device_id, "revoked": bool(doc.get("revoked")),

@@ -1,4 +1,6 @@
 """Shared router helpers: event ingestion, idempotency, privacy scoping."""
+from __future__ import annotations
+
 import copy
 import uuid
 from typing import Optional
@@ -7,26 +9,38 @@ from fastapi import Header
 
 from .. import edge_keystore
 from ..auth import has_permission
+from ..config import PERSISTENCE_BACKEND
 from ..db import db as prod_db
 from ..errors import ApiError
 from ..events import bus
 from ..models import utcnow_iso
+from ..crypto import verify
 from ..ulid import new_ulid
 
 
 async def default_device(user: dict) -> str:
     """Every actor has a registered signing device; provision on first use."""
     device_id = f"DEV-{user['user_id']}"
-    doc = await prod_db.devices.find_one({"device_id": device_id})
-    if not doc or not edge_keystore.has_key(device_id):
-        pub = edge_keystore.provision(device_id)
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        doc = await postgres.find_device(device_id)
+    else:
+        doc = await prod_db.devices.find_one({"device_id": device_id})
+    pub = edge_keystore.provision(device_id)
+    if not doc or doc.get("public_key") != pub:
         from ..constants import EventType
-        await bus.emit_system(EventType.DEVICE_REGISTERED.value,
-                              {"device_id": device_id, "public_key": pub,
-                               "owner_user_id": user["user_id"],
-                               "device_type": "web_client",
-                               "signing_mode": "server_keystore",
-                               "trust_level": "provisional"})
+        if PERSISTENCE_BACKEND == "postgres":
+            from .. import postgres
+            await postgres.upsert_device(
+                device_id=device_id, owner_user_id=user["user_id"], public_key=pub,
+                signing_mode="server_keystore", trust_level="provisional")
+        else:
+            await bus.emit_system(EventType.DEVICE_REGISTERED.value,
+                                  {"device_id": device_id, "public_key": pub,
+                                   "owner_user_id": user["user_id"],
+                                   "device_type": "web_client",
+                                   "signing_mode": "server_keystore",
+                                   "trust_level": "provisional"})
     elif doc.get("revoked"):
         raise ApiError(403, "DEVICE_REVOKED", "Signing device credential revoked")
     return device_id
@@ -40,7 +54,7 @@ async def emit_client_event(*, event_type: str, payload: dict, user: dict,
                             simulation: bool = False) -> dict:
     """Create a signed, idempotent event on behalf of an authenticated actor."""
     device_id = device_id or await default_device(user)
-    if not edge_keystore.has_key(device_id):
+    if not edge_keystore.get_private_key(device_id):
         raise ApiError(409, "DEVICE_NOT_PROVISIONED",
                        "Device has no server-side signing material; sign client-side instead")
     env = bus.build_envelope(event_type, payload, origin_device_id=device_id,
@@ -72,10 +86,25 @@ async def sign_if_delegated(envelope: dict) -> dict:
     if envelope.get("signature"):
         return envelope
     device_id = envelope.get("origin_device_id")
-    device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        device = await postgres.find_device(device_id)
+    else:
+        device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
     if device and not device.get("revoked") and \
             device.get("signing_mode") == "server_keystore":
-        envelope["signature"] = edge_keystore.sign_envelope(device_id, envelope)
+        signature = edge_keystore.sign_envelope(device_id, envelope)
+        if signature and device.get("public_key") and verify(device["public_key"], envelope, signature):
+            envelope["signature"] = signature
+        else:
+            public_key = edge_keystore.provision(device_id)
+            envelope["signature"] = edge_keystore.sign_envelope(device_id, envelope)
+            if PERSISTENCE_BACKEND == "postgres":
+                from .. import postgres
+                await postgres.upsert_device(
+                    device_id=device_id, owner_user_id=device.get("owner_user_id"),
+                    public_key=public_key, signing_mode="server_keystore",
+                    trust_level=device.get("trust_level", "provisional"))
     return envelope
 
 
@@ -88,7 +117,11 @@ async def publish_offline_envelope(envelope: dict, *, simulation: bool = False) 
     """
     envelope = {k: v for k, v in envelope.items() if k in ENVELOPE_FIELDS}
     device_id = envelope.get("origin_device_id")
-    device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
+    if PERSISTENCE_BACKEND == "postgres":
+        from .. import postgres
+        device = await postgres.find_device(device_id)
+    else:
+        device = await prod_db.devices.find_one({"device_id": device_id}, {"_id": 0})
     if device and device.get("revoked"):
         raise ApiError(403, "DEVICE_REVOKED", "Signing device credential revoked")
     if not envelope.get("signature") and device and \
